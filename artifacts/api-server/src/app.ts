@@ -67,7 +67,6 @@ const corsOptions: cors.CorsOptions = {
     }
 
     logger.warn({ origin }, "Blocked by CORS");
-
     callback(new Error(`CORS blocked origin: ${origin}`));
   },
   credentials: false,
@@ -77,7 +76,15 @@ const corsOptions: cors.CorsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+
+  next();
+});
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
