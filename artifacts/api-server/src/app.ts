@@ -1,4 +1,9 @@
-import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import express, {
+  type Express,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes/index.js";
@@ -6,29 +11,28 @@ import { logger } from "./lib/logger.js";
 
 const app: Express = express();
 
-function normalizeOrigin(value: string) {
+function normalizeOrigin(value?: string | null) {
   return String(value || "").trim().replace(/\/$/, "");
 }
 
 function getAllowedOrigins() {
-  const fromEnv = [
+  const rawOrigins = [
     process.env.CLIENT_URL,
     process.env.ADMIN_DASHBOARD_URL,
+    process.env.FRONTEND_URL,
     process.env.CORS_ORIGIN,
     process.env.CORS_ORIGINS,
-  ]
-    .filter(Boolean)
-    .flatMap((value) => String(value).split(","))
-    .map(normalizeOrigin)
-    .filter(Boolean);
-
-  return new Set([
-    ...fromEnv,
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:8080",
     "https://workspaceadmin-dashboard-production-48e1.up.railway.app",
-  ]);
+  ];
+
+  return rawOrigins
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(","))
+    .map(normalizeOrigin)
+    .filter(Boolean);
 }
 
 function isAllowedOrigin(origin?: string) {
@@ -37,15 +41,17 @@ function isAllowedOrigin(origin?: string) {
   const cleanOrigin = normalizeOrigin(origin);
   const allowedOrigins = getAllowedOrigins();
 
-  if (allowedOrigins.has(cleanOrigin)) return true;
+  if (allowedOrigins.includes(cleanOrigin)) return true;
 
-  // Railway preview/production domains ke liye safe wildcard
+  // Allow Railway generated domains safely
   if (/^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i.test(cleanOrigin)) {
     return true;
   }
 
   return false;
 }
+
+app.set("trust proxy", 1);
 
 app.use(
   pinoHttp({
@@ -56,6 +62,7 @@ app.use(
           id: req.id,
           method: req.method,
           url: req.url?.split("?")[0],
+          origin: req.headers.origin,
         };
       },
       res(res) {
@@ -67,14 +74,17 @@ app.use(
   })
 );
 
-// Manual CORS preflight handler, Express 5 safe.
-// Do NOT use app.options("*", ...) in Express 5.
+// Railway safe CORS handler
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
 
   if (typeof origin === "string" && isAllowedOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
+  }
+
+  if (!origin) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
   }
 
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -87,6 +97,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     req.headers["access-control-request-headers"] ||
       "Origin, X-Requested-With, Content-Type, Accept, Authorization"
   );
+  res.setHeader("Access-Control-Max-Age", "86400");
 
   if (req.method === "OPTIONS") {
     res.status(204).end();
@@ -118,21 +129,56 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "5mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-app.get("/health", (_req, res) => {
-  res.json({
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
     ok: true,
     service: "api-server",
+    message: "QuickApply Pro API is running",
+    time: new Date().toISOString(),
+  });
+});
+
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({
+    ok: true,
+    service: "api-server",
+    status: "healthy",
+    time: new Date().toISOString(),
+  });
+});
+
+app.get("/api/health", (_req: Request, res: Response) => {
+  res.status(200).json({
+    ok: true,
+    service: "api-server",
+    status: "healthy",
     time: new Date().toISOString(),
   });
 });
 
 app.use("/api", router);
 
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({
+    error: "Route not found",
+  });
+});
+
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  req.log?.error({ err }, "Unhandled API error");
+  req.log?.error(
+    {
+      err,
+      message: err?.message,
+      stack: err?.stack,
+      path: req.path,
+      method: req.method,
+      origin: req.headers.origin,
+    },
+    "Unhandled API error"
+  );
 
   res.status(err?.status || 500).json({
     error: err?.message || "Internal server error",
