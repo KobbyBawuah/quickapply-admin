@@ -15,35 +15,47 @@ import { toast } from "sonner";
 import { Sparkles, Loader2, Eye, Check, X, Send, RefreshCw } from "lucide-react";
 import { useLocation } from "wouter";
 
+const PRODUCTION_API_URL = "https://workspaceapi-server-production-31fb.up.railway.app";
+
 function getApiBaseUrl() {
   const configuredBase = String(import.meta.env.VITE_API_URL || "").trim();
 
   if (configuredBase) {
-    return configuredBase.replace(/\/$/, "");
+    return configuredBase.replace(/\/+$/, "");
   }
 
   if (import.meta.env.DEV) {
     return "http://localhost:5000";
   }
 
-  throw new Error(
-    "VITE_API_URL is missing. Add it to the admin-dashboard Railway variables and redeploy."
-  );
+  return PRODUCTION_API_URL;
 }
 
 async function apiCall(path: string, options?: RequestInit) {
   const token = localStorage.getItem("qap_admin_token");
   const base = getApiBaseUrl();
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const url = `${base}/api${cleanPath}`;
 
-  const response = await fetch(`${base}/api${cleanPath}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options?.headers || {}),
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      ...options,
+      mode: "cors",
+      credentials: "omit",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options?.headers || {}),
+      },
+    });
+  } catch (err: any) {
+    throw new Error(
+      `Failed to connect to API server. Check backend URL and CORS. API: ${base}. ${err?.message || ""}`
+    );
+  }
 
   const rawText = await response.text();
 
@@ -269,12 +281,16 @@ function DraftCard({
   onReject,
   onPreview,
   onTest,
+  approving,
+  testing,
 }: {
   draft: Draft;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onPreview: (draft: Draft) => void;
   onTest: (id: string) => void;
+  approving: boolean;
+  testing: boolean;
 }) {
   const typeColor =
     draft.contentType === "newsletter"
@@ -315,16 +331,25 @@ function DraftCard({
           <Eye className="w-3 h-3" /> Preview
         </Button>
 
-        <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onTest(draft._id)}>
-          <Send className="w-3 h-3" /> Test
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs gap-1"
+          onClick={() => onTest(draft._id)}
+          disabled={testing}
+        >
+          {testing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+          Test
         </Button>
 
         <Button
           size="sm"
           className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
           onClick={() => onApprove(draft._id)}
+          disabled={approving}
         >
-          <Check className="w-3 h-3" /> Approve
+          {approving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+          Approve
         </Button>
 
         <Button
@@ -344,7 +369,7 @@ export default function AiGeneratorPage() {
   const [, navigate] = useLocation();
 
   const [contentType, setContentType] = useState("both");
-  const [count, setCount] = useState("2");
+  const [count, setCount] = useState("1");
   const [audience, setAudience] = useState("inactive_users");
   const [angle, setAngle] = useState("sunday_anxiety");
   const [customInstructions, setCustomInstructions] = useState("");
@@ -355,6 +380,11 @@ export default function AiGeneratorPage() {
   const [previewDraft, setPreviewDraft] = useState<Draft | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
+
+  async function loadPendingDrafts() {
+    const draftsData = await apiCall("/ai/drafts?status=pending_approval&limit=20");
+    setRecentDrafts(draftsData.drafts || []);
+  }
 
   async function handleGenerate() {
     setLoading(true);
@@ -382,8 +412,7 @@ export default function AiGeneratorPage() {
 
       toast.success(data.message || "Generation complete");
 
-      const draftsData = await apiCall("/ai/drafts?status=pending_approval&limit=20");
-      setRecentDrafts(draftsData.drafts || []);
+      await loadPendingDrafts();
     } catch (err: any) {
       toast.error(err.message || "Generation failed");
     } finally {
@@ -562,7 +591,7 @@ export default function AiGeneratorPage() {
                 </p>
                 <p className="text-xs text-emerald-600/70">Model: {result.aiModel}</p>
                 <p className="text-xs text-emerald-700 mt-1">
-                  All drafts are <strong>pending approval</strong> — review them below or in the Approval Queue.
+                  All drafts are <strong>pending approval</strong>. Review them below or in the Approval Queue.
                 </p>
               </div>
             )}
@@ -596,7 +625,7 @@ export default function AiGeneratorPage() {
                 <Sparkles className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">Select options and click Generate Now</p>
                 <p className="text-xs text-muted-foreground/70 mt-1">
-                  The selected text AI provider will generate drafts based on your settings. Newsletter graphics use fal.ai when enabled. Generation can take 15–60 seconds.
+                  The selected text AI provider will generate drafts based on your settings. Newsletter graphics use fal.ai when enabled. Generation can take 15 to 60 seconds.
                 </p>
               </div>
             )}
@@ -619,6 +648,8 @@ export default function AiGeneratorPage() {
                 onReject={handleReject}
                 onPreview={setPreviewDraft}
                 onTest={handleTest}
+                approving={approving === draft._id}
+                testing={testing === draft._id}
               />
             ))}
           </div>
