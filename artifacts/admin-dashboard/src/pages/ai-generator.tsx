@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Layout } from "@/components/Layout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -16,22 +15,58 @@ import { toast } from "sonner";
 import { Sparkles, Loader2, Eye, Check, X, Send, RefreshCw } from "lucide-react";
 import { useLocation } from "wouter";
 
-function apiCall(path: string, options?: RequestInit) {
-  const token = localStorage.getItem("qap_admin_token");
-  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+function getApiBaseUrl() {
+  const configuredBase = String(import.meta.env.VITE_API_URL || "").trim();
 
-  return fetch(`${base}/api${path}`, {
+  if (configuredBase) {
+    return configuredBase.replace(/\/$/, "");
+  }
+
+  if (import.meta.env.DEV) {
+    return "http://localhost:5000";
+  }
+
+  throw new Error(
+    "VITE_API_URL is missing. Add it to the admin-dashboard Railway variables and redeploy."
+  );
+}
+
+async function apiCall(path: string, options?: RequestInit) {
+  const token = localStorage.getItem("qap_admin_token");
+  const base = getApiBaseUrl();
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+
+  const response = await fetch(`${base}/api${cleanPath}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options?.headers || {}),
     },
-  }).then(async (res) => {
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
-    return data;
   });
+
+  const rawText = await response.text();
+
+  let data: any = {};
+
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = {
+      error: rawText || `Request failed with status ${response.status}`,
+    };
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data?.error ||
+        data?.message ||
+        data?.details ||
+        `Request failed with status ${response.status}`
+    );
+  }
+
+  return data;
 }
 
 function cleanEmailPreviewHtml(html: string) {
@@ -331,7 +366,7 @@ export default function AiGeneratorPage() {
         method: "POST",
         body: JSON.stringify({
           contentType,
-          count: parseInt(count),
+          count: parseInt(count, 10),
           audience: AUDIENCES.find((a) => a.value === audience)?.label || audience,
           angle: ANGLES.find((a) => a.value === angle)?.label || angle,
           customInstructions,
@@ -340,12 +375,12 @@ export default function AiGeneratorPage() {
       });
 
       setResult({
-        emailDrafts: data.emailDrafts,
-        newsletterDrafts: data.newsletterDrafts,
-        aiModel: data.aiModel,
+        emailDrafts: data.emailDrafts || 0,
+        newsletterDrafts: data.newsletterDrafts || 0,
+        aiModel: data.aiModel || data.aiProvider || "AI",
       });
 
-      toast.success(data.message);
+      toast.success(data.message || "Generation complete");
 
       const draftsData = await apiCall("/ai/drafts?status=pending_approval&limit=20");
       setRecentDrafts(draftsData.drafts || []);
@@ -389,7 +424,7 @@ export default function AiGeneratorPage() {
 
     try {
       const data = await apiCall(`/ai/drafts/${id}/send-test`, { method: "POST" });
-      toast[data.success ? "success" : "error"](data.message);
+      toast[data.success ? "success" : "error"](data.message || "Test request completed");
     } catch (err: any) {
       toast.error(err.message || "Test send failed");
     } finally {
