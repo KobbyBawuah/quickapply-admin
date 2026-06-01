@@ -351,13 +351,15 @@ Important rules:
 
 HTML rules:
 1. htmlBody must be usable as an email body.
-2. htmlBody must include the QuickApply Pro logo at the top.
+2. Do not include the QuickApply Pro logo, header, footer, outer email container, unsubscribe text, company address, or full email layout manually. Generate only the main inner email content. The system will add the official branded wrapper automatically.
 3. htmlBody must use the approved QuickApply Pro brand colors only.
 4. Do not create random green, purple, orange, red, or gradient palettes.
 5. Use inline CSS only.
 6. textBody must contain the same message in plain text.
 7. Each draft must be meaningfully different.
 8. Do not use forbidden dash characters in title, subject, preheader, angle, htmlBody, or textBody.
+9. htmlBody must not include <html>, <head>, <body>, full-width wrapper tables, repeated logos, footer blocks, unsubscribe blocks, or company signature sections.
+10. htmlBody should only contain the main message content such as heading, paragraphs, CTA button, and short supporting sections.
 `;
 }
 
