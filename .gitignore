@@ -1,0 +1,22 @@
+# Environment variables / secrets
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!.env.sample
+
+# Logs
+logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+# Local/Replit files
+.local/
+.cache/
+.replit-artifact/

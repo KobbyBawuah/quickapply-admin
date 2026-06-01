@@ -1,0 +1,54 @@
+modules = ["nodejs-24"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[[ports]]
+localPort = 22133
+externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+MONGO_URI = "mongodb+srv://QapDemo2026Test:QapDemo2026Test@hackathon-cluster-2.g7g635g.mongodb.net/qap_demo?appName=hackathon-cluster-2"
+MONGO_DB_NAME = "qap_demo"
+USERS_COLLECTION = "users"
+EMAIL_PROVIDER = "gmail"
+SENDER_NAME = "QuickApply Pro"
+CTA_URL = "https://quickapplypro.com/pricing"
+INACTIVE_DAYS_THRESHOLD = "7"
+NEWSLETTER_INTERVAL_DAYS = "14"
+MAX_EMAILS_PER_RUN = "50"
+DELAY_BETWEEN_EMAILS_MS = "3000"
+INACTIVE_CAMPAIGN_ENABLED = "true"
+NEWSLETTER_CAMPAIGN_ENABLED = "true"
+CRON_TIMEZONE = "America/New_York"
+INACTIVE_CAMPAIGN_CRON = "0 9 * * 1"
+NEWSLETTER_CAMPAIGN_CRON = "0 10 */14 * *"
+
+[nix]
+packages = ["zip"]

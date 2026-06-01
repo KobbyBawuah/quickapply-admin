@@ -1,0 +1,380 @@
+You have already built the QuickApply Pro Admin Console. Now I need you to audit, debug, and fully fix the application. Do not redesign the app. Keep the current UI, sidebar, pages, colors, and layout unless a fix requires a small UI improvement.
+
+Main problem found:
+In Settings, I changed the Admin Email field and clicked Save Settings. The UI saved the new value, but when I clicked Send Test Email, the email was still sent to the old admin email: admin@quickapplypro.com. This is wrong.
+
+Expected behavior:
+When settings are updated from the Settings page, all related actions must use the latest saved settings, not old hardcoded values and not stale .env values.
+
+IMPORTANT REQUIREMENT:
+Audit and test every button, form, dropdown, filter, page, route, and backend API. Everything must be functional. Do not assume anything works. Test it manually through the app logic and fix all broken flows.
+
+SOURCE OF TRUTH RULES
+
+1. Environment variables are only initial defaults.
+2. Runtime settings saved from the Settings page must override .env values.
+3. After Save Settings, the app must use the updated settings immediately.
+4. Test Email must send to the current saved Admin Email from Settings.
+5. Sender Email, Reply-To Email, CTA URL, MongoDB URI, database name, users collection, thresholds, campaign limits, and delay values must all come from the latest saved settings.
+6. Do not hardcode admin@quickapplypro.com anywhere except as a fallback default if no setting exists.
+7. Do not hardcode QuickApply Pro email config in controller functions.
+8. Backend must fetch latest settings from app_settings before sending emails or running campaigns.
+
+FIX SETTINGS FLOW
+
+Check and fix:
+
+- Save Settings button
+- Settings API PUT /api/settings
+- Settings API GET /api/settings
+- Settings persistence in MongoDB app_settings collection
+- Frontend state after save
+- Backend settings cache, if any
+- Test Email function
+- Campaign email sender
+- Newsletter email sender
+- Cron job settings loader
+
+Save Settings behavior:
+When user changes any field and clicks Save Settings:
+- Validate inputs
+- Save to app_settings collection
+- Return updated settings from backend
+- Update frontend state with returned settings
+- Show success toast
+- All future API calls must use the updated settings
+
+Test Email behavior:
+When user clicks Send Test Email:
+- Backend must fetch latest settings from app_settings
+- Recipient must be settings.adminEmail
+- Sender must be settings.senderEmail
+- Reply-To must be settings.replyToEmail
+- Gmail credentials must use settings.emailUser/settings.emailAppPassword if saved, otherwise use env fallback
+- Save a test email log in email_logs with campaignType: "test_email"
+- Show success/failure toast with actual recipient email
+- If the recipient is missing, show clear error
+
+IMPORTANT:
+The Gmail Address and Gmail App Password fields currently say "Leave blank to keep". That is okay, but the backend must handle this correctly:
+- If user leaves Gmail Address blank, keep existing saved Gmail Address or env EMAIL_USER
+- If user leaves Gmail App Password blank, keep existing saved App Password or env EMAIL_APP_PASSWORD
+- Do not overwrite saved email credentials with empty strings
+- Do not display the actual app password in the frontend after save
+
+FIX MONGODB SETTINGS FLOW
+
+Check and fix:
+- MongoDB URI field
+- Database Name field
+- Users Collection field
+- Test Connection button
+
+Expected behavior:
+- Test Connection must use the current value from the Settings form, not only saved values
+- It must connect to the provided MongoDB URI
+- It must verify database name and users collection
+- It must show total user count from that collection
+- It must show clear success/failure message
+- If MongoDB URI is updated and saved, all user pages and campaign pages must reload data from the updated MongoDB connection
+
+USER PAGE AUDIT
+
+Test and fix:
+- Users page loads exactly 200 users from MongoDB
+- Search by name works
+- Search by email works
+- Filter All Users works
+- Filter Active works
+- Filter Inactive 7+ days works
+- Filter Inactive 14+ days works
+- Filter Free works
+- Filter Paid works
+- Filter Trial works
+- Filter Expired works
+- Filter Never Logged In works
+- Filter Already Emailed works
+- Filter Not Emailed works
+- Filter Do Not Contact works
+- Action icons work:
+  - Send email
+  - View email history
+  - Mark as do-not-contact
+- When user is marked do-not-contact, UI updates immediately
+- Marked do-not-contact users must not appear in eligible campaign lists
+- Email status must update after sending email
+
+INACTIVE CAMPAIGN PAGE AUDIT
+
+Test and fix:
+- Eligible recipient count is correct
+- It must include users where:
+  - email exists
+  - lastLoginAt exists
+  - lastLoginAt older than inactive threshold
+  - subscriptionStatus is free, trial, expired, or inactive
+  - doNotContact is not true
+  - user has not received same campaign within cooldown
+- Preview list must match eligible count
+- Refresh button must reload eligible users
+- Run Campaign Now button must work
+- Confirmation modal must appear before bulk sending
+- User must type SEND to confirm
+- Campaign must respect MAX_EMAILS_PER_RUN
+- Campaign must apply DELAY_BETWEEN_EMAILS_MS
+- Each sent email must create email_logs entry
+- Each failed email must create email_logs entry
+- Each skipped email must create email_logs entry with reason
+- campaign_runs collection must store:
+  - startedAt
+  - finishedAt
+  - campaignType
+  - triggerType
+  - matchedUsers
+  - sentCount
+  - failedCount
+  - skippedCount
+  - status
+- Dashboard must update after campaign run
+- Run History page must show the campaign run
+- Email Logs page must show each email attempt
+
+NEWSLETTER CAMPAIGN PAGE AUDIT
+
+Test and fix:
+- Eligible recipient count is correct
+- It must exclude doNotContact users
+- It must avoid users who received newsletter in last 14 days
+- Next Topic edit button must work
+- Edited topic must persist
+- Override Template dropdown must work
+- Auto-select must choose active newsletter template
+- Run Campaign Now button must work
+- Confirmation modal must appear
+- Newsletter emails must use the current saved CTA URL
+- Newsletter logs must appear in Email Logs
+- Newsletter run must appear in Run History
+
+TEMPLATES PAGE AUDIT
+
+Test and fix:
+- Templates page loads templates from database
+- Create template works
+- Edit template works
+- Delete template works
+- Enable/disable template works
+- Preview template works
+- Send test template email works
+- Variables render correctly:
+  - {{firstName}}
+  - {{lastName}}
+  - {{name}}
+  - {{email}}
+  - {{lastLoginDate}}
+  - {{daysInactive}}
+  - {{plan}}
+  - {{subscriptionStatus}}
+  - {{country}}
+  - {{ctaUrl}}
+- If a variable is missing, replace with empty string or safe fallback, not raw undefined
+- Template type must support inactive campaign and newsletter
+
+EMAIL LOGS PAGE AUDIT
+
+Test and fix:
+- Email Logs page loads logs from email_logs collection
+- Search by recipient works
+- Search by email works
+- Filter by campaign type works
+- Filter by status works
+- Date range filters work
+- Export CSV button works
+- CSV contains correct columns:
+  - recipient
+  - email
+  - campaign
+  - subject
+  - status
+  - sentAt
+  - errorReason
+- Logs update immediately after sending test email or campaign email
+
+RUN HISTORY PAGE AUDIT
+
+Test and fix:
+- Run History page loads from campaign_runs collection
+- Filter All Campaigns works
+- Filter Inactive works
+- Filter Newsletter works
+- Shows run started/finished
+- Shows matched, sent, failed, skipped counts
+- Shows manual vs scheduled trigger
+- Updates after campaign run
+
+DASHBOARD AUDIT
+
+Test and fix:
+- Total users count comes from MongoDB users collection
+- Active users count is correct
+- Inactive users count is correct
+- Do Not Contact count is correct
+- Sent this week count comes from email_logs
+- Newsletter sent count comes from email_logs
+- Failed emails count comes from email_logs
+- Campaigns run count comes from campaign_runs
+- Last Monday Campaign updates after inactive campaign run
+- Next Scheduled date respects CRON_TIMEZONE
+- Timezone currently must be America/New_York unless changed in settings
+
+TIMEZONE FIX
+
+Current timezone must be:
+CRON_TIMEZONE=America/New_York
+
+Update all displayed schedule text to use this timezone. If the UI currently says Asia/Karachi, fix it.
+
+Inactive campaign text should show:
+Scheduled every Monday at 9:00 AM (America/New_York)
+
+Newsletter text should show:
+Scheduled every 14 days at 10:00 AM (America/New_York)
+
+AUTH AUDIT
+
+Test and fix:
+- Login page works with ADMIN_EMAIL and ADMIN_PASSWORD
+- Invalid login shows error
+- Logout works
+- Protected pages require login
+- Refreshing page does not break session
+- Expired/invalid token redirects to login
+
+BACKEND API AUDIT
+
+Check every API route manually and fix errors:
+
+Auth:
+- POST /api/auth/login
+- POST /api/auth/logout
+- GET /api/auth/me
+
+Settings:
+- GET /api/settings
+- PUT /api/settings
+- POST /api/settings/test-mongodb
+- POST /api/settings/test-email
+
+Users:
+- GET /api/users
+- GET /api/users/inactive
+- GET /api/users/:id/history
+- POST /api/users/:id/send-email
+- POST /api/users/:id/do-not-contact
+
+Templates:
+- GET /api/templates
+- POST /api/templates
+- PUT /api/templates/:id
+- DELETE /api/templates/:id
+- POST /api/templates/:id/preview
+- POST /api/templates/:id/send-test
+
+Campaigns:
+- GET /api/campaigns/runs
+- POST /api/campaigns/inactive/run
+- POST /api/campaigns/newsletter/run
+- GET /api/campaigns/inactive/preview
+- GET /api/campaigns/newsletter/preview
+
+Logs:
+- GET /api/email-logs
+- GET /api/email-logs/export
+
+BUG FIX REQUIREMENTS
+
+Search the entire codebase for hardcoded values and fix them:
+- admin@quickapplypro.com
+- Admin@12345
+- testing123email456789@gmail.com
+- Asia/Karachi
+- qap_demo
+- users
+- quickapplypro.com/pricing
+
+These values may exist as defaults only, but functional code must prefer saved settings.
+
+Add helper functions:
+- getSettings()
+- getEmailConfig()
+- getMongoConfig()
+- renderTemplate()
+- createEmailLog()
+- createCampaignRun()
+- updateCampaignRun()
+- calculateDaysInactive()
+- isEligibleInactiveUser()
+- isEligibleNewsletterUser()
+
+TESTING REQUIREMENTS
+
+Add a backend health/test endpoint:
+GET /api/debug/status
+
+It should return:
+- MongoDB connection status
+- current database name
+- users collection name
+- total users count
+- current adminEmail from settings
+- current senderEmail from settings
+- current replyToEmail from settings
+- current timezone
+- email provider
+- campaign settings
+- counts of email_logs and campaign_runs
+
+Add another endpoint:
+POST /api/debug/test-all
+
+It should run non-destructive checks:
+- settings load
+- MongoDB connection
+- users count
+- inactive eligible count
+- newsletter eligible count
+- templates count
+- email config presence
+- logs collection accessible
+- campaign_runs collection accessible
+
+Return a structured checklist with pass/fail results.
+
+DO NOT send bulk emails in test-all. Only check configuration.
+
+FINAL ACCEPTANCE CHECKLIST
+
+After fixing, verify and report:
+
+1. Settings save works.
+2. Changing Admin Email affects Send Test Email immediately.
+3. Test Email sends to the currently saved Admin Email, not old env email.
+4. MongoDB Test Connection works.
+5. Users page loads 200 users.
+6. All filters work.
+7. Do-not-contact action works.
+8. Inactive campaign preview shows correct recipients.
+9. Run Campaign Now creates campaign_runs entry.
+10. Run Campaign Now creates email_logs entries.
+11. Newsletter topic edit persists.
+12. Newsletter campaign creates campaign run and logs.
+13. Email Logs filters work.
+14. Export CSV works.
+15. Run History filters work.
+16. Dashboard numbers update after actions.
+17. Timezone is America/New_York.
+18. No frontend exposure of secrets.
+19. No broken buttons.
+20. No console errors.
+21. No API route returns 500 during normal use.
+
+Do not stop after making code changes. Run the app, test the flows, fix errors, and only then summarize what was fixed.

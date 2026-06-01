@@ -1,0 +1,972 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: QuickApply Pro Admin Dashboard API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: settings
+    description: App settings
+  - name: users
+    description: User management
+  - name: templates
+    description: Email templates
+  - name: campaigns
+    description: Campaign management
+  - name: logs
+    description: Email logs
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Admin login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginBody"
+      responses:
+        "200":
+          description: Login success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Admin logout
+      responses:
+        "200":
+          description: Logout success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current admin
+      responses:
+        "200":
+          description: Current admin info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminInfo"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get app settings
+      responses:
+        "200":
+          description: App settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+    put:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Update app settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppSettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppSettings"
+
+  /settings/test-mongodb:
+    post:
+      operationId: testMongodbConnection
+      tags: [settings]
+      summary: Test MongoDB connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestMongoBody"
+      responses:
+        "200":
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestConnectionResponse"
+
+  /settings/test-email:
+    post:
+      operationId: testEmailConnection
+      tags: [settings]
+      summary: Test email sending
+      responses:
+        "200":
+          description: Email test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [users]
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /users:
+    get:
+      operationId: getUsers
+      tags: [users]
+      summary: Get all users with filters
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [all, active, inactive7, inactive14, free, paid, trial, expired, neverLoggedIn, alreadyEmailed, notEmailed, doNotContact]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Users list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsersResponse"
+
+  /users/inactive:
+    get:
+      operationId: getInactiveUsers
+      tags: [users]
+      summary: Get inactive users for campaign preview
+      responses:
+        "200":
+          description: Inactive users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsersResponse"
+
+  /users/{userId}/history:
+    get:
+      operationId: getUserEmailHistory
+      tags: [users]
+      summary: Get email history for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Email history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailLogsResponse"
+
+  /users/{userId}/send-email:
+    post:
+      operationId: sendEmailToUser
+      tags: [users]
+      summary: Send email to a specific user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendEmailBody"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /users/{userId}/do-not-contact:
+    post:
+      operationId: markDoNotContact
+      tags: [users]
+      summary: Mark user as do-not-contact
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User marked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /templates:
+    get:
+      operationId: getTemplates
+      tags: [templates]
+      summary: Get all email templates
+      responses:
+        "200":
+          description: Templates list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplatesResponse"
+    post:
+      operationId: createTemplate
+      tags: [templates]
+      summary: Create email template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateBody"
+      responses:
+        "201":
+          description: Created template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTemplate"
+
+  /templates/{templateId}:
+    put:
+      operationId: updateTemplate
+      tags: [templates]
+      summary: Update email template
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateBody"
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailTemplate"
+    delete:
+      operationId: deleteTemplate
+      tags: [templates]
+      summary: Delete email template
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /templates/{templateId}/preview:
+    post:
+      operationId: previewTemplate
+      tags: [templates]
+      summary: Preview template with sample data
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rendered preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplatePreviewResponse"
+
+  /templates/{templateId}/send-test:
+    post:
+      operationId: sendTestEmail
+      tags: [templates]
+      summary: Send test email to admin
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Test email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /campaigns/runs:
+    get:
+      operationId: getCampaignRuns
+      tags: [campaigns]
+      summary: Get campaign run history
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [inactive, newsletter]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Campaign runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignRunsResponse"
+
+  /campaigns/inactive/preview:
+    get:
+      operationId: previewInactiveCampaign
+      tags: [campaigns]
+      summary: Preview inactive campaign recipients
+      responses:
+        "200":
+          description: Preview data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignPreviewResponse"
+
+  /campaigns/inactive/run:
+    post:
+      operationId: runInactiveCampaign
+      tags: [campaigns]
+      summary: Manually run inactive user campaign
+      responses:
+        "200":
+          description: Campaign result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignRunResult"
+
+  /campaigns/newsletter/preview:
+    get:
+      operationId: previewNewsletterCampaign
+      tags: [campaigns]
+      summary: Preview newsletter campaign recipients
+      responses:
+        "200":
+          description: Preview data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignPreviewResponse"
+
+  /campaigns/newsletter/run:
+    post:
+      operationId: runNewsletterCampaign
+      tags: [campaigns]
+      summary: Manually run newsletter campaign
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewsletterRunBody"
+      responses:
+        "200":
+          description: Campaign result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignRunResult"
+
+  /email-logs:
+    get:
+      operationId: getEmailLogs
+      tags: [logs]
+      summary: Get email logs
+      parameters:
+        - name: campaignType
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [sent, failed, skipped]
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Email logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailLogsResponse"
+
+  /email-logs/export:
+    get:
+      operationId: exportEmailLogs
+      tags: [logs]
+      summary: Export email logs as CSV
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required: [error]
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        success:
+          type: boolean
+      required: [message]
+
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required: [email, password]
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        admin:
+          $ref: "#/components/schemas/AdminInfo"
+      required: [token, admin]
+
+    AdminInfo:
+      type: object
+      properties:
+        email:
+          type: string
+        name:
+          type: string
+      required: [email]
+
+    AppSettings:
+      type: object
+      properties:
+        mongoUri:
+          type: string
+        databaseName:
+          type: string
+        usersCollection:
+          type: string
+        fieldMapping:
+          type: object
+          additionalProperties:
+            type: string
+        emailProvider:
+          type: string
+        senderName:
+          type: string
+        senderEmail:
+          type: string
+        replyToEmail:
+          type: string
+        ctaUrl:
+          type: string
+        inactiveCampaignEnabled:
+          type: boolean
+        inactiveDaysThreshold:
+          type: integer
+        newsletterEnabled:
+          type: boolean
+        newsletterIntervalDays:
+          type: integer
+        maxEmailsPerRun:
+          type: integer
+        delayBetweenEmailsMs:
+          type: integer
+        adminEmail:
+          type: string
+
+    AppSettingsUpdate:
+      type: object
+      properties:
+        mongoUri:
+          type: string
+        databaseName:
+          type: string
+        usersCollection:
+          type: string
+        fieldMapping:
+          type: object
+          additionalProperties:
+            type: string
+        emailProvider:
+          type: string
+        senderName:
+          type: string
+        senderEmail:
+          type: string
+        replyToEmail:
+          type: string
+        ctaUrl:
+          type: string
+        inactiveCampaignEnabled:
+          type: boolean
+        inactiveDaysThreshold:
+          type: integer
+        newsletterEnabled:
+          type: boolean
+        newsletterIntervalDays:
+          type: integer
+        maxEmailsPerRun:
+          type: integer
+        delayBetweenEmailsMs:
+          type: integer
+        gmailUser:
+          type: string
+        gmailPassword:
+          type: string
+        resendApiKey:
+          type: string
+
+    TestMongoBody:
+      type: object
+      properties:
+        mongoUri:
+          type: string
+        databaseName:
+          type: string
+        usersCollection:
+          type: string
+      required: [mongoUri]
+
+    TestConnectionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        databaseName:
+          type: string
+        userCount:
+          type: integer
+      required: [success, message]
+
+    DashboardStats:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        activeUsers:
+          type: integer
+        inactiveUsers:
+          type: integer
+        emailsSentThisWeek:
+          type: integer
+        newsletterEmailsSent:
+          type: integer
+        failedEmails:
+          type: integer
+        lastMondayCampaignStatus:
+          type: string
+        nextScheduledCampaign:
+          type: string
+        doNotContactCount:
+          type: integer
+      required: [totalUsers, activeUsers, inactiveUsers, emailsSentThisWeek, newsletterEmailsSent, failedEmails]
+
+    User:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        lastLoginAt:
+          type: string
+        subscriptionStatus:
+          type: string
+        plan:
+          type: string
+        country:
+          type: string
+        createdAt:
+          type: string
+        doNotContact:
+          type: boolean
+        role:
+          type: string
+        daysInactive:
+          type: integer
+        lastEmailSent:
+          type: string
+        emailStatus:
+          type: string
+
+    UsersResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+      required: [users, total]
+
+    SendEmailBody:
+      type: object
+      properties:
+        templateId:
+          type: string
+      required: [templateId]
+
+    EmailTemplate:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        campaignType:
+          type: string
+          enum: [inactive, newsletter]
+        subject:
+          type: string
+        htmlBody:
+          type: string
+        textBody:
+          type: string
+        angle:
+          type: string
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [_id, name, campaignType, subject, htmlBody]
+
+    TemplateBody:
+      type: object
+      properties:
+        name:
+          type: string
+        campaignType:
+          type: string
+          enum: [inactive, newsletter]
+        subject:
+          type: string
+        htmlBody:
+          type: string
+        textBody:
+          type: string
+        angle:
+          type: string
+        isActive:
+          type: boolean
+      required: [name, campaignType, subject, htmlBody]
+
+    TemplatesResponse:
+      type: object
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailTemplate"
+      required: [templates]
+
+    TemplatePreviewResponse:
+      type: object
+      properties:
+        subject:
+          type: string
+        htmlBody:
+          type: string
+        textBody:
+          type: string
+      required: [subject, htmlBody]
+
+    CampaignRun:
+      type: object
+      properties:
+        _id:
+          type: string
+        campaignType:
+          type: string
+          enum: [inactive, newsletter]
+        triggerType:
+          type: string
+          enum: [manual, scheduled]
+        startedAt:
+          type: string
+        finishedAt:
+          type: string
+        matchedUsers:
+          type: integer
+        sentCount:
+          type: integer
+        failedCount:
+          type: integer
+        skippedCount:
+          type: integer
+        status:
+          type: string
+          enum: [running, completed, failed]
+        notes:
+          type: string
+      required: [_id, campaignType, triggerType, startedAt, sentCount, failedCount, skippedCount, status]
+
+    CampaignRunsResponse:
+      type: object
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CampaignRun"
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+      required: [runs, total]
+
+    CampaignPreviewResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        nextTopic:
+          type: string
+      required: [users, total]
+
+    CampaignRunResult:
+      type: object
+      properties:
+        runId:
+          type: string
+        sentCount:
+          type: integer
+        failedCount:
+          type: integer
+        skippedCount:
+          type: integer
+        matchedUsers:
+          type: integer
+        status:
+          type: string
+        message:
+          type: string
+      required: [sentCount, failedCount, skippedCount, status]
+
+    NewsletterRunBody:
+      type: object
+      properties:
+        topic:
+          type: string
+        templateId:
+          type: string
+
+    EmailLog:
+      type: object
+      properties:
+        _id:
+          type: string
+        recipientEmail:
+          type: string
+        recipientName:
+          type: string
+        userId:
+          type: string
+        campaignType:
+          type: string
+        campaignRunId:
+          type: string
+        templateId:
+          type: string
+        subject:
+          type: string
+        htmlBody:
+          type: string
+        status:
+          type: string
+          enum: [sent, failed, skipped]
+        provider:
+          type: string
+        providerMessageId:
+          type: string
+        errorMessage:
+          type: string
+        sentAt:
+          type: string
+        skipReason:
+          type: string
+      required: [_id, recipientEmail, status, sentAt]
+
+    EmailLogsResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailLog"
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+      required: [logs, total]

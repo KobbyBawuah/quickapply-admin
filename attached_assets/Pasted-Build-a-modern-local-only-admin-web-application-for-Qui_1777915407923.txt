@@ -1,0 +1,639 @@
+Build a modern local-only admin web application for QuickApply Pro email automation.
+
+PROJECT GOAL
+Create a private internal dashboard used by the client locally. The dashboard connects to the client’s MongoDB database where QuickApply Pro users are stored. It should detect inactive users, generate/send marketing emails, schedule recurring campaigns, and keep a complete history of which user received which email.
+
+This app is for internal/local use only. It is not a public SaaS app.
+
+BRAND CONTEXT
+QuickApply Pro is an AI-powered job application platform. It helps users:
+
+- Tailor resumes in under 60 seconds
+- Use a Chrome extension to autofill job application forms
+- Generate tailored cover letters
+- Grade resumes against job descriptions
+- Prepare for interviews
+- Detect fake/scam job postings
+- Support international job seekers
+- Apply faster while keeping quality high
+- Access an affordable alternative compared to competitors
+
+Brand tone:
+- Sharp, confident, clean, direct
+- Not desperate, not spammy, not overhyped
+- Outcome-first copy
+- Professional but engaging
+- Do not fabricate claims
+- Do not use generic words like “game-changer”, “dream job”, “supercharge”, “cutting-edge”
+
+TECH STACK
+
+Frontend:
+- React + Vite
+- Tailwind CSS
+- shadcn/ui or clean modern components
+- Responsive dashboard UI
+
+Backend:
+- Node.js + Express.js
+- MongoDB + Mongoose
+- node-cron for scheduled jobs
+- Nodemailer for Gmail email sending
+- Resend/SendGrid/Mailgun optional later for production
+- dotenv for environment variables
+
+Database:
+Use the connected MongoDB database for users.
+
+Also create these internal collections in the same MongoDB database:
+1. email_logs
+2. campaign_runs
+3. email_templates
+4. newsletter_topics
+5. app_settings
+
+DEMO MONGODB CONNECTION DETAILS
+
+Use this MongoDB Atlas database for development/testing:
+
+MONGO_URI=mongodb+srv://QapDemo2026Test:QapDemo2026Test@hackathon-cluster-2.g7g635g.mongodb.net/qap_demo?appName=hackathon-cluster-2
+MONGO_DB_NAME=qap_demo
+USERS_COLLECTION=users
+
+The demo database already contains 200 sample users in qap_demo.users.
+
+MongoDB field mapping:
+- name field = name
+- first name field = firstName
+- last name field = lastName
+- email field = email
+- last login field = lastLoginAt
+- subscription status field = subscriptionStatus
+- plan field = plan
+- country field = country
+- created date field = createdAt
+- do not contact field = doNotContact
+- role field = role
+
+The sample users include:
+- inactive users older than 7 days
+- active users logged in within the last 6 days
+- paid users
+- free/trial/expired/inactive users
+- doNotContact users
+- never logged in users
+
+Important:
+- Do not hardcode MongoDB credentials directly inside source code.
+- Store them only in backend/.env.
+- Use process.env.MONGO_URI in the backend.
+- The frontend must never expose the MongoDB URI.
+- Add a Settings page where the MongoDB URI can be changed later when the client provides the real MongoDB credentials.
+
+GMAIL EMAIL SENDING DETAILS
+
+Use Gmail + Nodemailer for development/testing.
+
+EMAIL_USER=testing123email456789@gmail.com
+EMAIL_APP_PASSWORD=fwasvrrczaquwidh
+
+Important:
+- The Gmail App Password was originally formatted as: fwas vrrc zaqu widh
+- In .env, use it without spaces: fwasvrrczaquwidh
+- Never expose the Gmail App Password to the frontend.
+- Never hardcode it in source code.
+- Use process.env.EMAIL_USER and process.env.EMAIL_APP_PASSWORD.
+- Gmail is only for testing/development.
+- For production or real bulk campaigns, support Resend, SendGrid, or Mailgun with a verified sending domain.
+
+CORE DASHBOARD PAGES
+
+1. Login Page
+- Simple admin login
+- Local-only authentication
+- Admin email/password from .env
+- JWT or secure session
+- No public signup
+
+2. Dashboard Overview
+Show cards:
+- Total users
+- Active users
+- Inactive 7+ days
+- Emails sent this week
+- Newsletter emails sent
+- Failed emails
+- Last Monday campaign status
+- Next scheduled campaign date
+
+3. MongoDB Connection Settings
+- Input MongoDB URI
+- Test connection button
+- Show connected database name
+- Show detected user collection
+- Allow mapping fields:
+  - email
+  - name
+  - firstName
+  - lastName
+  - createdAt
+  - lastLoginAt
+  - subscriptionStatus
+  - plan
+  - country
+  - role
+  - doNotContact
+- Save mapping locally in app_settings
+- Allow switching from demo MongoDB to real client MongoDB later
+
+4. Users Page
+- Pull users from MongoDB
+- Search by name/email
+- Filter:
+  - Active
+  - Inactive 7+ days
+  - Inactive 14+ days
+  - Free users
+  - Paid users
+  - Trial users
+  - Expired users
+  - Never logged in
+  - Already emailed
+  - Not emailed yet
+  - Do-not-contact users
+- Table columns:
+  - Name
+  - Email
+  - Last login
+  - Days inactive
+  - Subscription status
+  - Plan
+  - Country
+  - Last email sent
+  - Email status
+  - Actions
+- Actions:
+  - Preview email
+  - Send email now
+  - Mark as do-not-contact
+  - View email history
+
+5. Inactive User Campaign Page
+
+Purpose:
+Every Monday, collect users who have logged in before but have been inactive for more than 7 days. Send them a persuasive reactivation email encouraging them to purchase or renew a subscription.
+
+Logic:
+Query users where:
+- email exists
+- lastLoginAt exists
+- lastLoginAt older than 7 days
+- subscriptionStatus is free, trial, expired, or inactive
+- doNotContact is not true
+- user has not received the same campaign in the last 7 days
+
+Features:
+- Show matching users before sending
+- Allow manual “Run Campaign Now”
+- Allow scheduled automatic run every Monday at 9:00 AM
+- Store each campaign run in campaign_runs
+- Store every email sent in email_logs
+- Show sent, failed, and skipped users
+
+Email copy angles:
+Rotate between these angles:
+1. Sunday night anxiety before applying
+2. Working professional bored in current role, not desperate
+3. Applying to 50 jobs and hearing nothing
+4. Resume tailoring in under 60 seconds
+5. Chrome extension autofill saves time
+6. Interview prep and fraud detection
+7. Affordable compared to competitors
+
+Email requirements:
+- Subject line should be short and natural
+- Avoid spammy words like “BUY NOW”, “FREE!!!”, “LIMITED OFFER”
+- Use plain HTML with clean formatting
+- Personalized greeting
+- One clear CTA
+- Include unsubscribe/do-not-contact footer
+- Keep email human and useful
+- Never overpromise job results
+- Do not use fake guarantees
+- Do not imply QuickApply Pro fabricates credentials
+- Keep QAP voice sharp, specific, and direct
+
+Create 5 built-in inactive-user email templates.
+
+Example template style:
+
+Subject: Still applying the slow way?
+
+Hi {{firstName}},
+
+Most people don’t lose momentum because they lack talent.
+They lose it because every application feels like another unpaid task.
+
+QuickApply Pro helps you move faster without lowering the quality:
+
+- Tailor your resume to a role in under 60 seconds
+- Autofill application forms with the Chrome extension
+- Check job posts for scam signals
+- Prep for interviews before the callback lands
+
+If you’re still watching roles and waiting for the right one, this is the faster way to act when it appears.
+
+CTA: Continue with QuickApply Pro
+
+Footer:
+You’re receiving this because you signed up for QuickApply Pro.
+Manage preferences or unsubscribe.
+
+6. Newsletter Campaign Page
+
+Purpose:
+Every 14 days, send all eligible users a useful job-market style newsletter based on current hiring trends and scenarios, then naturally connect the topic to QuickApply Pro.
+
+Newsletter logic:
+- Runs every 14 days
+- Sends to all users with valid emails except doNotContact
+- Avoid sending if user received newsletter in last 14 days
+- Admin can edit the next topic before it runs
+- Admin can manually generate newsletter idea
+- Admin can manually run newsletter campaign
+
+Newsletter examples:
+- “Why job applications feel harder in 2026”
+- “Why tailored resumes beat mass applying”
+- “How scam job posts waste serious candidates’ time”
+- “Why working professionals should keep an application kit ready”
+- “Why applying to 50 jobs with one resume does not work”
+- “How international job seekers can improve application quality”
+- “Why working professionals should not wait until they are desperate to update their resume”
+- “Why job fraud detection matters before applying”
+
+Newsletter structure:
+- Subject
+- Short intro about current job-search problem
+- 3–5 useful insights
+- Soft QuickApply Pro connection
+- CTA
+- Footer/unsubscribe
+
+7. Email Templates Page
+- CRUD templates
+- Template variables:
+  - {{firstName}}
+  - {{lastName}}
+  - {{name}}
+  - {{email}}
+  - {{lastLoginDate}}
+  - {{daysInactive}}
+  - {{plan}}
+  - {{subscriptionStatus}}
+  - {{country}}
+  - {{ctaUrl}}
+- Preview template with sample user
+- Send test email to admin
+- Enable/disable template
+- Mark template as inactive-user campaign or newsletter
+
+8. Email Logs Page
+Show:
+- Recipient name/email
+- Campaign type
+- Subject
+- Email body preview
+- Sent date/time
+- Status: sent, failed, skipped
+- Failure reason
+- Provider message ID
+- Open/click tracking placeholders if available
+- Filter by campaign type/date/status/user
+- Export CSV button
+
+9. Campaign Runs Page
+Show:
+- Campaign type
+- Run date
+- Trigger type: manual or scheduled
+- Total matched users
+- Sent count
+- Failed count
+- Skipped count
+- View details
+
+10. Settings Page
+Fields:
+- Admin email
+- Sender name
+- Sender email
+- Reply-to email
+- CTA URL
+- MongoDB URI
+- MongoDB database name
+- Users collection name
+- Gmail email
+- Gmail App Password
+- Resend API key optional
+- SMTP fallback settings
+- Campaign schedule day/time
+- Newsletter interval days
+- Max emails per run
+- Delay between emails
+- Do-not-contact list
+
+EMAIL DELIVERABILITY BEST PRACTICES
+
+Implement:
+- Add unsubscribe/do-not-contact link placeholder
+- Add delay between emails
+- Rate limit sending
+- Avoid sending duplicate emails
+- Log failures
+- Use clean HTML
+- Use reply-to address
+- Avoid spammy subject lines
+- Avoid excessive links
+- Avoid all-caps sales copy
+- Never send from random Gmail for production
+- Use Gmail only for local demo/testing
+- Add Resend/SendGrid/Mailgun support for production with verified domain
+
+BACKEND API ROUTES
+
+Auth:
+- POST /api/auth/login
+- POST /api/auth/logout
+- GET /api/auth/me
+
+Settings:
+- GET /api/settings
+- PUT /api/settings
+- POST /api/settings/test-mongodb
+- POST /api/settings/test-email
+
+Users:
+- GET /api/users
+- GET /api/users/inactive
+- GET /api/users/:id/history
+- POST /api/users/:id/send-email
+- POST /api/users/:id/do-not-contact
+
+Templates:
+- GET /api/templates
+- POST /api/templates
+- PUT /api/templates/:id
+- DELETE /api/templates/:id
+- POST /api/templates/:id/preview
+- POST /api/templates/:id/send-test
+
+Campaigns:
+- GET /api/campaigns/runs
+- POST /api/campaigns/inactive/run
+- POST /api/campaigns/newsletter/run
+- GET /api/campaigns/inactive/preview
+- GET /api/campaigns/newsletter/preview
+
+Logs:
+- GET /api/email-logs
+- GET /api/email-logs/export
+
+CRON JOBS
+
+- Every Monday at 9:00 AM: run inactive user campaign
+- Every 14 days at 10:00 AM: run newsletter campaign
+- Cron jobs should only run if enabled in settings
+- Prevent duplicate campaign run on same day
+- Use timezone from env: CRON_TIMEZONE=Asia/Karachi
+
+Cron values:
+- INACTIVE_CAMPAIGN_CRON=0 9 * * 1
+- NEWSLETTER_CAMPAIGN_CRON=0 10 */14 * *
+
+DATA MODELS
+
+User model:
+The user model should be flexible because existing MongoDB fields may differ.
+Use field mapping from settings.
+
+EmailLog:
+{
+  recipientEmail,
+  recipientName,
+  userId,
+  campaignType,
+  campaignRunId,
+  templateId,
+  subject,
+  htmlBody,
+  textBody,
+  status,
+  provider,
+  providerMessageId,
+  errorMessage,
+  sentAt,
+  openedAt,
+  clickedAt
+}
+
+CampaignRun:
+{
+  campaignType,
+  triggerType,
+  startedAt,
+  finishedAt,
+  matchedUsers,
+  sentCount,
+  failedCount,
+  skippedCount,
+  status,
+  notes
+}
+
+EmailTemplate:
+{
+  name,
+  campaignType,
+  subject,
+  htmlBody,
+  textBody,
+  angle,
+  isActive,
+  createdAt,
+  updatedAt
+}
+
+AppSettings:
+{
+  mongoUri,
+  databaseName,
+  usersCollection,
+  fieldMapping,
+  emailProvider,
+  resendApiKey,
+  smtpConfig,
+  senderName,
+  senderEmail,
+  replyToEmail,
+  ctaUrl,
+  inactiveCampaignEnabled,
+  inactiveDaysThreshold,
+  inactiveCampaignDay,
+  inactiveCampaignTime,
+  newsletterEnabled,
+  newsletterIntervalDays,
+  maxEmailsPerRun,
+  delayBetweenEmailsMs
+}
+
+UI DESIGN
+
+Make it modern, premium, and clean:
+- Dark sidebar
+- Light main dashboard
+- Cards with soft shadow
+- Status badges
+- Tables with filters
+- Campaign preview modal
+- Email preview modal
+- Toast notifications
+- Confirmation modal before sending bulk email
+- Loading states
+- Empty states
+- Error states
+- Clean analytics cards
+- Professional SaaS admin dashboard look
+- Fully responsive layout
+
+IMPORTANT SAFETY
+
+Before bulk sending:
+- Show confirmation modal
+- Show number of recipients
+- Require admin to type SEND to confirm
+- Do not send to users without email
+- Do not send to doNotContact users
+- Do not send duplicate campaign to same user within cooldown period
+- Do not send more than MAX_EMAILS_PER_RUN in one campaign run
+- Apply DELAY_BETWEEN_EMAILS_MS between each email
+- Log skipped users and reason
+
+GMAIL NODEMAILER SETUP
+
+Create an email service using Nodemailer.
+
+SMTP config:
+service: gmail
+auth.user: process.env.EMAIL_USER
+auth.pass: process.env.EMAIL_APP_PASSWORD
+
+The email sender should:
+- Send test email from Settings page
+- Send manual campaign email
+- Send scheduled inactive-user campaign every Monday
+- Send newsletter campaign every 14 days
+- Save success/failure result in email_logs
+- Save provider response or error message
+- Apply delay between each email using DELAY_BETWEEN_EMAILS_MS
+
+ENV EXAMPLE WITH DEMO CREDENTIALS
+
+Create backend/.env with these values:
+
+PORT=5000
+CLIENT_URL=http://localhost:5173
+
+ADMIN_EMAIL=admin@quickapplypro.com
+ADMIN_PASSWORD=Admin@12345
+JWT_SECRET=change-this-secret-key-qap-local-dashboard
+
+MONGO_URI=mongodb+srv://QapDemo2026Test:QapDemo2026Test@hackathon-cluster-2.g7g635g.mongodb.net/qap_demo?appName=hackathon-cluster-2
+MONGO_DB_NAME=qap_demo
+USERS_COLLECTION=users
+
+EMAIL_PROVIDER=gmail
+EMAIL_USER=testing123email456789@gmail.com
+EMAIL_APP_PASSWORD=fwasvrrczaquwidh
+
+SENDER_NAME=QuickApply Pro
+SENDER_EMAIL=testing123email456789@gmail.com
+REPLY_TO_EMAIL=testing123email456789@gmail.com
+
+CTA_URL=https://quickapplypro.com/pricing
+
+INACTIVE_DAYS_THRESHOLD=7
+NEWSLETTER_INTERVAL_DAYS=14
+MAX_EMAILS_PER_RUN=50
+DELAY_BETWEEN_EMAILS_MS=3000
+
+INACTIVE_CAMPAIGN_ENABLED=true
+NEWSLETTER_CAMPAIGN_ENABLED=true
+
+CRON_TIMEZONE=Asia/Karachi
+INACTIVE_CAMPAIGN_CRON=0 9 * * 1
+NEWSLETTER_CAMPAIGN_CRON=0 10 */14 * *
+
+SECURITY REQUIREMENTS
+
+1. Store all credentials only in backend/.env.
+2. Never hardcode MongoDB URI or Gmail App Password inside source code.
+3. Never expose MongoDB URI or Gmail App Password to the frontend.
+4. Use process.env.MONGO_URI for MongoDB connection.
+5. Use process.env.EMAIL_USER and process.env.EMAIL_APP_PASSWORD for Nodemailer Gmail SMTP.
+6. Gmail App Password must be used without spaces.
+7. Use Gmail only for development/testing.
+8. For production or real bulk email campaigns, add support for Resend/SendGrid/Mailgun with verified domain.
+9. The MongoDB database already contains 200 demo users in qap_demo.users.
+10. The app should read users from qap_demo.users and create internal collections in the same database:
+    - email_logs
+    - campaign_runs
+    - email_templates
+    - newsletter_topics
+    - app_settings
+
+DELIVERABLES
+
+Generate complete working code:
+- frontend folder
+- backend folder
+- package.json scripts
+- README.md
+- .env.example
+- MongoDB models
+- API controllers
+- cron jobs
+- email service
+- template engine
+- frontend pages/components
+- setup instructions
+
+README must include:
+1. How to install
+2. How to create MongoDB demo database
+3. How to connect existing client MongoDB
+4. How to configure Gmail App Password
+5. How to configure Resend later for production
+6. How to run locally
+7. How to test email sending
+8. How scheduled campaigns work
+9. How to avoid spam
+10. How to use demo mode safely
+11. How to replace demo MongoDB with real client MongoDB later
+
+FINAL REQUIREMENT
+
+Generate a complete working local app. The app must be able to:
+1. Login as admin.
+2. Connect to the provided MongoDB URI.
+3. Pull all users from qap_demo.users.
+4. Display total users, active users, and inactive users.
+5. Filter inactive users older than 7 days.
+6. Preview reactivation emails.
+7. Send test email using Gmail/Nodemailer.
+8. Send campaign email manually.
+9. Automatically run inactive campaign every Monday.
+10. Automatically run newsletter every 14 days.
+11. Save every sent/failed/skipped email in email_logs.
+12. Show campaign history in the dashboard.
+13. Allow switching MongoDB credentials later for the real client database.
