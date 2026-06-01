@@ -83,61 +83,16 @@ function normalizeGeneratedDrafts(
   return (drafts || []).map((draft) => normalizeGeneratedDraft(draft, settings, kind));
 }
 
-const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
-
-const CLAUDE_MODEL_ALIASES: Record<string, string> = {
-  "claude-3-5-sonnet-latest": DEFAULT_CLAUDE_MODEL,
-  "claude-3.5-sonnet-latest": DEFAULT_CLAUDE_MODEL,
-  "claude-3-5-sonnet-20241022": DEFAULT_CLAUDE_MODEL,
-  "claude-3-5-sonnet-20240620": DEFAULT_CLAUDE_MODEL,
-  "claude-3-7-sonnet-20250219": DEFAULT_CLAUDE_MODEL,
-  "claude-sonnet-4": DEFAULT_CLAUDE_MODEL,
-  "claude-sonnet-4-20250514": DEFAULT_CLAUDE_MODEL,
-};
-
-const CLAUDE_MODELS = new Set([
-  "claude-sonnet-4-6",
-  "claude-opus-4-7",
-  "claude-haiku-4-5",
-  "claude-sonnet-4-5-20250929",
-  "claude-haiku-4-5-20251001",
-]);
+/**
+ * Keep a safe default that matches your current Railway variable.
+ * Do not silently replace user configured Claude models with unknown future aliases.
+ */
+const DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-20241022";
 
 function sanitizeClaudeModel(model?: string) {
   const value = String(model || "").trim();
 
   if (!value) return DEFAULT_CLAUDE_MODEL;
-
-  if (CLAUDE_MODEL_ALIASES[value]) {
-    logger.warn(
-      { model: value, replacement: CLAUDE_MODEL_ALIASES[value] },
-      "Replaced retired Claude model"
-    );
-
-    return CLAUDE_MODEL_ALIASES[value];
-  }
-
-  if (
-    value.includes("latest") ||
-    value.includes("3-5-sonnet") ||
-    value.includes("3.5-sonnet")
-  ) {
-    logger.warn(
-      { model: value, replacement: DEFAULT_CLAUDE_MODEL },
-      "Blocked invalid Claude model"
-    );
-
-    return DEFAULT_CLAUDE_MODEL;
-  }
-
-  if (!CLAUDE_MODELS.has(value)) {
-    logger.warn(
-      { model: value, replacement: DEFAULT_CLAUDE_MODEL },
-      "Unknown Claude model"
-    );
-
-    return DEFAULT_CLAUDE_MODEL;
-  }
 
   return value;
 }
@@ -200,7 +155,7 @@ function getTextModel(settings: any, provider: TextAiProvider): string {
     return (
       settings.falTextModel ||
       process.env.FAL_TEXT_MODEL ||
-      "anthropic/claude-sonnet-4"
+      "anthropic/claude-3-5-sonnet"
     );
   }
 
@@ -227,12 +182,18 @@ function getProviderApiKey(settings: any, provider: TextAiProvider): string {
   return "local";
 }
 
-function parseJsonResponse(raw: string) {
-  const cleaned = String(raw || "")
+function stripMarkdownJson(raw: string) {
+  const text = String(raw || "").trim();
+
+  return text
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/```$/i, "")
     .trim();
+}
+
+function parseJsonResponse(raw: string) {
+  const cleaned = stripMarkdownJson(raw);
 
   try {
     return JSON.parse(cleaned);
@@ -246,6 +207,68 @@ function parseJsonResponse(raw: string) {
 
     throw new Error("AI response was not valid JSON");
   }
+}
+
+/**
+ * Accept multiple possible provider response shapes.
+ * This prevents failures when Claude or fal returns a slightly different key.
+ */
+function extractDraftArray(payload: any): any[] | null {
+  if (!payload) return null;
+
+  if (Array.isArray(payload)) return payload;
+
+  if (typeof payload === "string") {
+    try {
+      return extractDraftArray(parseJsonResponse(payload));
+    } catch {
+      return null;
+    }
+  }
+
+  if (Array.isArray(payload.drafts)) return payload.drafts;
+  if (Array.isArray(payload.emailDrafts)) return payload.emailDrafts;
+  if (Array.isArray(payload.newsletterDrafts)) return payload.newsletterDrafts;
+  if (Array.isArray(payload.generatedDrafts)) return payload.generatedDrafts;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.results)) return payload.results;
+
+  if (payload.draft && typeof payload.draft === "object") {
+    return [payload.draft];
+  }
+
+  if (payload.output) return extractDraftArray(payload.output);
+  if (payload.text) return extractDraftArray(payload.text);
+  if (payload.response) return extractDraftArray(payload.response);
+  if (payload.content) return extractDraftArray(payload.content);
+  if (payload.data) return extractDraftArray(payload.data);
+
+  return null;
+}
+
+function coerceProviderDrafts(payload: any, providerName: string): any[] {
+  const drafts = extractDraftArray(payload);
+
+  if (!Array.isArray(drafts)) {
+    logger.error(
+      {
+        providerName,
+        payloadPreview:
+          typeof payload === "string"
+            ? payload.slice(0, 1000)
+            : JSON.stringify(payload || {}).slice(0, 1000),
+      },
+      "Provider response did not contain drafts array"
+    );
+
+    throw new Error(`Invalid ${providerName} response: missing drafts array`);
+  }
+
+  if (drafts.length === 0) {
+    throw new Error(`Invalid ${providerName} response: drafts array was empty`);
+  }
+
+  return drafts;
 }
 
 const NO_DASH_RULE = `
@@ -272,7 +295,7 @@ function buildPrompt(
   return `
 You are writing marketing content for QuickApply Pro, a job application automation and resume tailoring platform.
 
-Generate ${count} ${
+Generate exactly ${count} ${
     kind === "newsletter"
       ? "newsletter draft(s)"
       : "inactive user reengagement email draft(s)"
@@ -300,7 +323,7 @@ ${buildBrandStylePrompt(settings)}
 
 Return the drafts using the structured return_drafts tool only.
 
-The tool input must match this shape:
+The tool input must match this exact shape:
 {
   "drafts": [
     {
@@ -316,6 +339,15 @@ The tool input must match this shape:
     }
   ]
 }
+
+Important rules:
+1. The root object must contain a property named drafts.
+2. drafts must be an array.
+3. The drafts array must contain exactly ${count} item(s).
+4. Do not use emailDrafts, newsletterDrafts, items, results, or any other root key.
+5. Do not return markdown.
+6. Do not return plain text outside the tool.
+7. Do not explain your answer.
 
 HTML rules:
 1. htmlBody must be usable as an email body.
@@ -342,7 +374,9 @@ async function callClaude(
   const response = await client.messages.create({
     model: safeModel,
     max_tokens: 8192,
-    temperature: 0.7,
+    temperature: 0.4,
+    system:
+      "You are a structured marketing draft generator. You must use the return_drafts tool. Return no normal text unless tool use fails.",
     tools: [
       {
         name: "return_drafts",
@@ -353,6 +387,7 @@ async function callClaude(
           properties: {
             drafts: {
               type: "array",
+              minItems: 1,
               items: {
                 type: "object",
                 additionalProperties: true,
@@ -399,19 +434,37 @@ async function callClaude(
     (block: any) => block.type === "tool_use" && block.name === "return_drafts"
   ) as any;
 
-  if (!toolUse?.input) {
-    throw new Error("Claude did not return structured drafts");
+  if (toolUse?.input) {
+    const drafts = coerceProviderDrafts(toolUse.input, "Claude");
+
+    return {
+      drafts: normalizeGeneratedDrafts(drafts, settings, kind),
+    };
   }
 
-  const parsed = toolUse.input;
+  const textContent = response.content
+    .filter((block: any) => block.type === "text")
+    .map((block: any) => block.text || "")
+    .join("\n")
+    .trim();
 
-  if (!Array.isArray(parsed?.drafts)) {
-    throw new Error("Invalid Claude response: missing drafts array");
+  if (textContent) {
+    const drafts = coerceProviderDrafts(textContent, "Claude");
+
+    return {
+      drafts: normalizeGeneratedDrafts(drafts, settings, kind),
+    };
   }
 
-  return {
-    drafts: normalizeGeneratedDrafts(parsed.drafts, settings, kind),
-  };
+  logger.error(
+    {
+      model: safeModel,
+      responsePreview: JSON.stringify(response.content || []).slice(0, 1500),
+    },
+    "Claude did not return usable tool output"
+  );
+
+  throw new Error("Claude did not return structured drafts");
 }
 
 async function callOpenAI(
@@ -431,7 +484,17 @@ async function callOpenAI(
       model,
       temperature: 0.7,
       response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        {
+          role: "user",
+          content: `${prompt}
+
+Return ONLY valid JSON with this exact root shape:
+{
+  "drafts": []
+}`,
+        },
+      ],
     }),
   });
 
@@ -442,13 +505,10 @@ async function callOpenAI(
   }
 
   const parsed = parseJsonResponse(data?.choices?.[0]?.message?.content || "");
-
-  if (!Array.isArray(parsed?.drafts)) {
-    throw new Error("Invalid OpenAI response: missing drafts array");
-  }
+  const drafts = coerceProviderDrafts(parsed, "OpenAI");
 
   return {
-    drafts: normalizeGeneratedDrafts(parsed.drafts, settings, kind),
+    drafts: normalizeGeneratedDrafts(drafts, settings, kind),
   };
 }
 
@@ -465,7 +525,20 @@ async function callGemini(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [
+        {
+          parts: [
+            {
+              text: `${prompt}
+
+Return ONLY valid JSON with this exact root shape:
+{
+  "drafts": []
+}`,
+            },
+          ],
+        },
+      ],
     }),
   });
 
@@ -480,13 +553,10 @@ async function callGemini(
     "";
 
   const parsed = parseJsonResponse(raw);
-
-  if (!Array.isArray(parsed?.drafts)) {
-    throw new Error("Invalid Gemini response: missing drafts array");
-  }
+  const drafts = coerceProviderDrafts(parsed, "Gemini");
 
   return {
-    drafts: normalizeGeneratedDrafts(parsed.drafts, settings, kind),
+    drafts: normalizeGeneratedDrafts(drafts, settings, kind),
   };
 }
 
@@ -505,7 +575,12 @@ async function callFalText(
     },
     body: JSON.stringify({
       model,
-      prompt,
+      prompt: `${prompt}
+
+Return ONLY valid JSON with this exact root shape:
+{
+  "drafts": []
+}`,
     }),
   });
 
@@ -523,27 +598,13 @@ async function callFalText(
     data?.response ||
     data?.content ||
     data?.data?.output ||
-    "";
+    data;
 
-  if (typeof raw === "string" && raw.trim()) {
-    const parsed = parseJsonResponse(raw);
+  const drafts = coerceProviderDrafts(raw, "fal");
 
-    if (!Array.isArray(parsed?.drafts)) {
-      throw new Error("Invalid fal response: missing drafts array");
-    }
-
-    return {
-      drafts: normalizeGeneratedDrafts(parsed.drafts, settings, kind),
-    };
-  }
-
-  if (Array.isArray(data?.drafts)) {
-    return {
-      drafts: normalizeGeneratedDrafts(data.drafts, settings, kind),
-    };
-  }
-
-  throw new Error("Invalid fal response");
+  return {
+    drafts: normalizeGeneratedDrafts(drafts, settings, kind),
+  };
 }
 
 function callLocalGenerator(
