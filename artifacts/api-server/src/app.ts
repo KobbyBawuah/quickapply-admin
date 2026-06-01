@@ -6,6 +6,47 @@ import { logger } from "./lib/logger.js";
 
 const app: Express = express();
 
+function normalizeOrigin(value: string) {
+  return String(value || "").trim().replace(/\/$/, "");
+}
+
+function getAllowedOrigins() {
+  const fromEnv = [
+    process.env.CLIENT_URL,
+    process.env.ADMIN_DASHBOARD_URL,
+    process.env.CORS_ORIGIN,
+    process.env.CORS_ORIGINS,
+  ]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(","))
+    .map(normalizeOrigin)
+    .filter(Boolean);
+
+  return new Set([
+    ...fromEnv,
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "https://workspaceadmin-dashboard-production-48e1.up.railway.app",
+  ]);
+}
+
+function isAllowedOrigin(origin?: string) {
+  if (!origin) return true;
+
+  const cleanOrigin = normalizeOrigin(origin);
+  const allowedOrigins = getAllowedOrigins();
+
+  if (allowedOrigins.has(cleanOrigin)) return true;
+
+  // Railway preview/production domains ke liye safe wildcard
+  if (/^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i.test(cleanOrigin)) {
+    return true;
+  }
+
+  return false;
+}
+
 app.use(
   pinoHttp({
     logger,
@@ -15,7 +56,6 @@ app.use(
           id: req.id,
           method: req.method,
           url: req.url?.split("?")[0],
-          origin: req.headers.origin,
         };
       },
       res(res) {
@@ -27,20 +67,29 @@ app.use(
   })
 );
 
+// Manual CORS preflight handler, Express 5 safe.
+// Do NOT use app.options("*", ...) in Express 5.
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin;
 
-  if (origin) {
-    res.header("Access-Control-Allow-Origin", origin);
-    res.header("Vary", "Origin");
+  if (typeof origin === "string" && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
   }
 
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type,Authorization,Accept");
-  res.header("Access-Control-Max-Age", "86400");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    req.headers["access-control-request-headers"] ||
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
 
   if (req.method === "OPTIONS") {
-    res.sendStatus(204);
+    res.status(204).end();
     return;
   }
 
@@ -49,40 +98,43 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(
   cors({
-    origin: true,
-    credentials: false,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked origin: ${origin}`));
+    },
+    credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
-    optionsSuccessStatus: 204,
+    allowedHeaders: [
+      "Origin",
+      "X-Requested-With",
+      "Content-Type",
+      "Accept",
+      "Authorization",
+    ],
   })
 );
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true }));
 
-app.get("/", (_req: Request, res: Response) => {
+app.get("/health", (_req, res) => {
   res.json({
-    success: true,
-    service: "QuickApply Pro API Server",
-    status: "online",
-  });
-});
-
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({
-    success: true,
-    status: "ok",
-    timestamp: new Date().toISOString(),
+    ok: true,
+    service: "api-server",
+    time: new Date().toISOString(),
   });
 });
 
 app.use("/api", router);
 
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  req.log?.error?.({ err }, "Unhandled API error");
+  req.log?.error({ err }, "Unhandled API error");
 
-  res.status(err?.statusCode || err?.status || 500).json({
-    success: false,
+  res.status(err?.status || 500).json({
     error: err?.message || "Internal server error",
   });
 });
