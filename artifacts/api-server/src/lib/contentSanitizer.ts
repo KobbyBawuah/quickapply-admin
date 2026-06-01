@@ -168,9 +168,6 @@ QUICKAPPLY PRO VISUAL BRAND SYSTEM
 
 Use this exact visual style for every generated htmlBody.
 
-Logo:
-${brand.logoUrl}
-
 Allowed colors only:
 Primary: ${brand.primaryColor}
 Accent: ${brand.accentColor}
@@ -183,22 +180,126 @@ Border: ${brand.borderColor}
 CTA text: ${brand.ctaTextColor}
 
 Rules:
-1. Every htmlBody must include the QuickApply Pro logo at the top.
-2. Do not invent random colors.
-3. Do not use green, purple, orange, red, gradient, or unrelated palettes unless one of those exact colors is listed above.
-4. Use inline CSS only because this is for email.
-5. Use a clean white email card on a light blue background.
-6. CTA buttons must use the primary color.
-7. Header or hero sections must use the primary color or dark color.
-8. Footer must use the footer text from settings.
-9. Do not use external CSS files, scripts, animations, or unsupported email layout techniques.
+1. Do not include the QuickApply Pro logo manually.
+2. Do not include an email header manually.
+3. Do not include an email footer manually.
+4. Do not include unsubscribe text, company address, or signature blocks manually.
+5. Do not create a full email document with html, head, body, or outer wrapper tables.
+6. Generate only the inner email content: heading, paragraphs, CTA, and short supporting sections.
+7. Do not invent random colors.
+8. Do not use green, purple, orange, red, gradient, or unrelated palettes unless one of those exact colors is listed above.
+9. Use inline CSS only because this is for email.
+10. CTA buttons must use the primary color.
+11. The system will add the official logo, branded wrapper, CTA button, and footer automatically.
 `;
+}
+
+function removeLogoImages(html: string): string {
+  return String(html || "")
+    .replace(/<img\b[^>]*(quickapply|quick-apply|logo)[^>]*>/gi, "")
+    .replace(/<img\b(?=[^>]*alt=["'][^"']*(quickapply|quick apply|logo)[^"']*["'])[^>]*>/gi, "");
+}
+
+function removeFooterLikeBlocks(html: string): string {
+  let cleaned = String(html || "");
+
+  cleaned = cleaned.replace(
+    /<p\b[^>]*>[\s\S]*?You are receiving this because[\s\S]*?<\/p>/gi,
+    ""
+  );
+
+  cleaned = cleaned.replace(
+    /<div\b[^>]*>[\s\S]*?You are receiving this because[\s\S]*?<\/div>/gi,
+    ""
+  );
+
+  cleaned = cleaned.replace(
+    /<p\b[^>]*>[\s\S]*?unsubscribe[\s\S]*?<\/p>/gi,
+    ""
+  );
+
+  cleaned = cleaned.replace(
+    /<div\b[^>]*>[\s\S]*?unsubscribe[\s\S]*?<\/div>/gi,
+    ""
+  );
+
+  cleaned = cleaned.replace(
+    /<p\b[^>]*>[\s\S]*?QuickApply Pro by[\s\S]*?<\/p>/gi,
+    ""
+  );
+
+  cleaned = cleaned.replace(
+    /<div\b[^>]*>[\s\S]*?QuickApply Pro by[\s\S]*?<\/div>/gi,
+    ""
+  );
+
+  cleaned = cleaned.replace(
+    /<p\b[^>]*>[\s\S]*?Lightleaps Innovations[\s\S]*?<\/p>/gi,
+    ""
+  );
+
+  cleaned = cleaned.replace(
+    /<div\b[^>]*>[\s\S]*?Lightleaps Innovations[\s\S]*?<\/div>/gi,
+    ""
+  );
+
+  return cleaned;
+}
+
+function removeOuterEmailWrapperTables(html: string): string {
+  let cleaned = String(html || "").trim();
+
+  cleaned = cleaned.replace(/<\/?tbody[^>]*>/gi, "");
+
+  const tdMatches = [...cleaned.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)];
+
+  if (tdMatches.length >= 2) {
+    const scored = tdMatches
+      .map((match) => {
+        const content = match[1] || "";
+        const score =
+          content.replace(/<[^>]+>/g, " ").trim().length +
+          (/<h1|<h2|<p|<a\b|<ul|<li/i.test(content) ? 500 : 0) -
+          (/You are receiving this because|unsubscribe|Lightleaps Innovations/i.test(content) ? 400 : 0) -
+          (/<img\b/i.test(content) ? 100 : 0);
+
+        return { content, score };
+      })
+      .sort((a, b) => b.score - a.score);
+
+    if (scored[0]?.content && scored[0].score > 500) {
+      cleaned = scored[0].content;
+    }
+  }
+
+  cleaned = cleaned
+    .replace(/<\/?table\b[^>]*>/gi, "")
+    .replace(/<\/?tr\b[^>]*>/gi, "")
+    .replace(/<\/?td\b[^>]*>/gi, "");
+
+  return cleaned.trim();
+}
+
+function stripGeneratedEmailWrapper(html: string): string {
+  let cleaned = stripHtmlDocumentShell(html || "");
+
+  cleaned = removeLogoImages(cleaned);
+  cleaned = removeFooterLikeBlocks(cleaned);
+  cleaned = removeOuterEmailWrapperTables(cleaned);
+
+  cleaned = cleaned
+    .replace(/<div\b[^>]*>\s*<\/div>/gi, "")
+    .replace(/<p\b[^>]*>\s*<\/p>/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return cleaned;
 }
 
 export function ensureBrandEmailHtml(html: string, settings: any): string {
   const brand = getBrandStyle(settings);
   const sanitizedHtml = sanitizeHtmlWithoutDashes(html || "");
-  const inner = stripRandomColorStyles(stripHtmlDocumentShell(sanitizedHtml));
+  const inner = stripRandomColorStyles(stripGeneratedEmailWrapper(sanitizedHtml));
 
   const safeFooter = escapeHtml(brand.footerText);
   const safeWebsiteUrl = escapeHtml(brand.websiteUrl);
