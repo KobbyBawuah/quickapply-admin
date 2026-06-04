@@ -4,18 +4,18 @@ import express, {
   type Response,
   type NextFunction,
 } from "express";
-import cors from "cors";
+import cors, { type CorsOptions } from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 
 const app: Express = express();
 
-function normalizeOrigin(value?: string | null) {
-  return String(value || "").trim().replace(/\/$/, "");
+function normalizeOrigin(value?: string | null): string {
+  return String(value || "").trim().replace(/\/+$/, "");
 }
 
-function getAllowedOrigins() {
+function getAllowedOrigins(): string[] {
   const rawOrigins = [
     process.env.CLIENT_URL,
     process.env.ADMIN_DASHBOARD_URL,
@@ -25,7 +25,6 @@ function getAllowedOrigins() {
     "http://localhost:3000",
     "http://localhost:5173",
     "http://localhost:8080",
-    "https://workspaceadmin-dashboard-production-48e1.up.railway.app",
   ];
 
   return rawOrigins
@@ -35,7 +34,7 @@ function getAllowedOrigins() {
     .filter(Boolean);
 }
 
-function isAllowedOrigin(origin?: string) {
+function isAllowedOrigin(origin?: string): boolean {
   if (!origin) return true;
 
   const cleanOrigin = normalizeOrigin(origin);
@@ -43,15 +42,34 @@ function isAllowedOrigin(origin?: string) {
 
   if (allowedOrigins.includes(cleanOrigin)) return true;
 
-  // Allow Railway generated domains safely
-  if (/^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i.test(cleanOrigin)) {
-    return true;
-  }
-
-  return false;
+  return /^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i.test(cleanOrigin);
 }
 
+const corsOptions: CorsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked origin: ${origin}`));
+  },
+  credentials: false,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+  ],
+  optionsSuccessStatus: 204,
+};
+
 app.set("trust proxy", 1);
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 app.use(
   pinoHttp({
@@ -71,61 +89,6 @@ app.use(
         };
       },
     },
-  })
-);
-
-// Railway safe CORS handler
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const origin = req.headers.origin;
-
-  if (typeof origin === "string" && isAllowedOrigin(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-  }
-
-  if (!origin) {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-  }
-
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    req.headers["access-control-request-headers"] ||
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-  res.setHeader("Access-Control-Max-Age", "86400");
-
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
-  }
-
-  next();
-});
-
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (isAllowedOrigin(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error(`CORS blocked origin: ${origin}`));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Origin",
-      "X-Requested-With",
-      "Content-Type",
-      "Accept",
-      "Authorization",
-    ],
   })
 );
 

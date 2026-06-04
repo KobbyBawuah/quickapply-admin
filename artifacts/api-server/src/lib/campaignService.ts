@@ -9,32 +9,83 @@ import {
   renderEmailContent,
   sleep,
 } from "./emailService.js";
-import { logger } from "./logger.js";
 import mongoose from "mongoose";
+
+function inactiveUserQuery(cutoff: Date) {
+  return {
+    email: { $exists: true, $ne: "" },
+    doNotContact: { $ne: true },
+    $or: [
+      { subscriptionStatus: "free" },
+      { subscriptionStatus: "trial" },
+      { subscriptionStatus: "expired" },
+      { subscriptionStatus: "inactive" },
+      { plan: "free" },
+      { subscription: false },
+      { subscription: "false" },
+      { subscription: { $exists: false } },
+    ],
+    $and: [
+      {
+        $or: [
+          { lastLoginAt: { $lt: cutoff, $exists: true, $ne: null } },
+          { lastActiveAt: { $lt: cutoff, $exists: true, $ne: null } },
+          { loginAt: { $lt: cutoff, $exists: true, $ne: null } },
+          {
+            $and: [
+              {
+                $or: [
+                  { lastLoginAt: { $exists: false } },
+                  { lastLoginAt: null },
+                ],
+              },
+              {
+                $or: [
+                  { lastActiveAt: { $exists: false } },
+                  { lastActiveAt: null },
+                ],
+              },
+              {
+                $or: [
+                  { loginAt: { $exists: false } },
+                  { loginAt: null },
+                ],
+              },
+              {
+                $or: [
+                  { updatedAt: { $lt: cutoff, $exists: true } },
+                  { createdAt: { $lt: cutoff, $exists: true } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
 
 export async function getInactiveUsers(): Promise<any[]> {
   const settings = await getSettings();
-  const inactiveDays = settings.inactiveDaysThreshold || 7;
-  const cutoff = new Date(Date.now() - inactiveDays * 24 * 60 * 60 * 1000);
+
+  const inactiveDays = Number(settings.inactiveDaysThreshold || 7);
+  const safeInactiveDays = Number.isFinite(inactiveDays) ? inactiveDays : 7;
+
+  const cutoff = new Date(
+    Date.now() - safeInactiveDays * 24 * 60 * 60 * 1000
+  );
 
   const col = await getUserCollection();
+
   const users = await col
-    .find({
-      email: { $exists: true, $ne: "" },
-      lastLoginAt: { $lt: cutoff, $exists: true },
-      $or: [
-        { subscriptionStatus: "free" },
-        { subscriptionStatus: "trial" },
-        { subscriptionStatus: "expired" },
-        { subscriptionStatus: "inactive" },
-        { plan: "free" },
-      ],
-      doNotContact: { $ne: true },
-    })
+    .find(inactiveUserQuery(cutoff))
+    .sort({ lastLoginAt: 1, lastActiveAt: 1, updatedAt: 1, createdAt: 1 })
     .toArray();
 
   const cooloff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
   const filtered: any[] = [];
+
   for (const user of users) {
     const recentLog = await EmailLog.findOne({
       recipientEmail: user.email,
@@ -42,17 +93,25 @@ export async function getInactiveUsers(): Promise<any[]> {
       sentAt: { $gte: cooloff },
       status: "sent",
     });
+
     if (!recentLog) filtered.push(user);
   }
+
   return filtered;
 }
 
 export async function getNewsletterUsers(): Promise<any[]> {
   const settings = await getSettings();
-  const intervalDays = settings.newsletterIntervalDays || 14;
-  const cooloff = new Date(Date.now() - intervalDays * 24 * 60 * 60 * 1000);
+
+  const intervalDays = Number(settings.newsletterIntervalDays || 14);
+  const safeIntervalDays = Number.isFinite(intervalDays) ? intervalDays : 14;
+
+  const cooloff = new Date(
+    Date.now() - safeIntervalDays * 24 * 60 * 60 * 1000
+  );
 
   const col = await getUserCollection();
+
   const users = await col
     .find({
       email: { $exists: true, $ne: "" },
@@ -61,6 +120,7 @@ export async function getNewsletterUsers(): Promise<any[]> {
     .toArray();
 
   const filtered: any[] = [];
+
   for (const user of users) {
     const recentLog = await EmailLog.findOne({
       recipientEmail: user.email,
@@ -68,14 +128,20 @@ export async function getNewsletterUsers(): Promise<any[]> {
       sentAt: { $gte: cooloff },
       status: "sent",
     });
+
     if (!recentLog) filtered.push(user);
   }
+
   return filtered;
 }
 
 async function incrementRun(
   runId: mongoose.Types.ObjectId,
-  fields: { sentCount?: number; failedCount?: number; matchedUsers?: number }
+  fields: {
+    sentCount?: number;
+    failedCount?: number;
+    matchedUsers?: number;
+  }
 ) {
   try {
     await CampaignRun.updateOne({ _id: runId }, { $set: fields });
@@ -97,9 +163,13 @@ export async function runInactiveCampaign(
   message: string;
 }> {
   let run: any;
+
   if (existingRunId) {
     run = await CampaignRun.findById(existingRunId);
-    if (!run) throw new Error(`CampaignRun ${existingRunId} not found`);
+
+    if (!run) {
+      throw new Error(`CampaignRun ${existingRunId} not found`);
+    }
   } else {
     run = await CampaignRun.create({
       campaignType: "inactive",
@@ -111,23 +181,26 @@ export async function runInactiveCampaign(
 
   const settings = await getSettings();
   const users = await getInactiveUsers();
-  const maxEmails = settings.maxEmailsPerRun || 50;
-  const delay = settings.delayBetweenEmailsMs ?? 1000;
+  const maxEmails = Number(settings.maxEmailsPerRun || 50);
+  const delay = Number(settings.delayBetweenEmailsMs ?? 1000);
 
-  // Require approved templates only
   const templates = await ApprovedContentTemplate.find({
     contentType: "inactive_email",
     status: "active",
   });
 
   if (templates.length === 0) {
-    const msg = "No approved template available. Approve a template first in AI Content → Approved Templates.";
+    const msg =
+      "No approved template available. Approve a template first in AI Content → Approved Templates.";
+
     run.status = "failed";
     run.notes = msg;
     run.finishedAt = new Date();
     run.matchedUsers = users.length;
     run.skippedCount = users.length;
+
     await run.save();
+
     return {
       runId: run._id.toString(),
       sentCount: 0,
@@ -142,6 +215,7 @@ export async function runInactiveCampaign(
   let sentCount = 0;
   let failedCount = 0;
   let skippedCount = 0;
+
   const usersToProcess = users.slice(0, maxEmails);
   skippedCount += users.length - usersToProcess.length;
 
@@ -149,9 +223,9 @@ export async function runInactiveCampaign(
 
   for (let i = 0; i < usersToProcess.length; i++) {
     const user = usersToProcess[i];
-    // Rotate through approved templates
     const template = templates[i % templates.length];
     const vars = buildTemplateVars(user, settings);
+
     const rendered = renderEmailContent(
       template.subject,
       template.htmlBody,
@@ -185,14 +259,23 @@ export async function runInactiveCampaign(
 
     if (result.success) {
       sentCount++;
+
       await ApprovedContentTemplate.updateOne(
         { _id: template._id },
-        { $inc: { usageCount: 1 }, $set: { lastUsedAt: new Date() } }
+        {
+          $inc: { usageCount: 1 },
+          $set: { lastUsedAt: new Date() },
+        }
       );
-    } else failedCount++;
+    } else {
+      failedCount++;
+    }
 
     await incrementRun(run._id, { sentCount, failedCount });
-    if (delay > 0 && i < usersToProcess.length - 1) await sleep(delay);
+
+    if (delay > 0 && i < usersToProcess.length - 1) {
+      await sleep(delay);
+    }
   }
 
   run.sentCount = sentCount;
@@ -201,6 +284,7 @@ export async function runInactiveCampaign(
   run.matchedUsers = users.length;
   run.status = "completed";
   run.finishedAt = new Date();
+
   await run.save();
 
   return {
@@ -226,7 +310,10 @@ const NEWSLETTER_TOPICS = [
 ];
 
 export function getNextNewsletterTopic(): string {
-  const index = Math.floor(Date.now() / (1000 * 60 * 60 * 24 * 14)) % NEWSLETTER_TOPICS.length;
+  const index =
+    Math.floor(Date.now() / (1000 * 60 * 60 * 24 * 14)) %
+    NEWSLETTER_TOPICS.length;
+
   return NEWSLETTER_TOPICS[index];
 }
 
@@ -245,9 +332,13 @@ export async function runNewsletterCampaign(
   message: string;
 }> {
   let run: any;
+
   if (existingRunId) {
     run = await CampaignRun.findById(existingRunId);
-    if (!run) throw new Error(`CampaignRun ${existingRunId} not found`);
+
+    if (!run) {
+      throw new Error(`CampaignRun ${existingRunId} not found`);
+    }
   } else {
     run = await CampaignRun.create({
       campaignType: "newsletter",
@@ -259,40 +350,60 @@ export async function runNewsletterCampaign(
 
   const settings = await getSettings();
   const users = await getNewsletterUsers();
-  const maxEmails = settings.maxEmailsPerRun || 50;
-  const delay = settings.delayBetweenEmailsMs ?? 1000;
+  const maxEmails = Number(settings.maxEmailsPerRun || 50);
+  const delay = Number(settings.delayBetweenEmailsMs ?? 1000);
   const topic = customTopic || getNextNewsletterTopic();
 
-  // Require approved newsletter templates only
   let templates;
+
   if (overrideTemplateId && overrideTemplateId !== "auto") {
     const specific = await ApprovedContentTemplate.findOne({
       _id: overrideTemplateId,
       contentType: "newsletter",
       status: "active",
     });
+
     if (!specific) {
       const msg = "Selected template is not an active approved newsletter template.";
+
       run.status = "failed";
       run.notes = msg;
       run.finishedAt = new Date();
       run.matchedUsers = users.length;
+
       await run.save();
-      return { runId: run._id.toString(), sentCount: 0, failedCount: 0, skippedCount: users.length, matchedUsers: users.length, status: "failed", message: msg };
+
+      return {
+        runId: run._id.toString(),
+        sentCount: 0,
+        failedCount: 0,
+        skippedCount: users.length,
+        matchedUsers: users.length,
+        status: "failed",
+        message: msg,
+      };
     }
+
     templates = [specific];
   } else {
-    templates = await ApprovedContentTemplate.find({ contentType: "newsletter", status: "active" });
+    templates = await ApprovedContentTemplate.find({
+      contentType: "newsletter",
+      status: "active",
+    });
   }
 
   if (templates.length === 0) {
-    const msg = "No approved template available. Approve a newsletter template first in AI Content → Approved Templates.";
+    const msg =
+      "No approved template available. Approve a newsletter template first in AI Content → Approved Templates.";
+
     run.status = "failed";
     run.notes = msg;
     run.finishedAt = new Date();
     run.matchedUsers = users.length;
     run.skippedCount = users.length;
+
     await run.save();
+
     return {
       runId: run._id.toString(),
       sentCount: 0,
@@ -307,6 +418,7 @@ export async function runNewsletterCampaign(
   let sentCount = 0;
   let failedCount = 0;
   let skippedCount = 0;
+
   const usersToProcess = users.slice(0, maxEmails);
   skippedCount += users.length - usersToProcess.length;
 
@@ -316,6 +428,7 @@ export async function runNewsletterCampaign(
     const user = usersToProcess[i];
     const template = templates[0];
     const vars = { ...buildTemplateVars(user, settings), topic };
+
     const rendered = renderEmailContent(
       template.subject,
       template.htmlBody,
@@ -349,14 +462,23 @@ export async function runNewsletterCampaign(
 
     if (result.success) {
       sentCount++;
+
       await ApprovedContentTemplate.updateOne(
         { _id: template._id },
-        { $inc: { usageCount: 1 }, $set: { lastUsedAt: new Date() } }
+        {
+          $inc: { usageCount: 1 },
+          $set: { lastUsedAt: new Date() },
+        }
       );
-    } else failedCount++;
+    } else {
+      failedCount++;
+    }
 
     await incrementRun(run._id, { sentCount, failedCount });
-    if (delay > 0 && i < usersToProcess.length - 1) await sleep(delay);
+
+    if (delay > 0 && i < usersToProcess.length - 1) {
+      await sleep(delay);
+    }
   }
 
   run.sentCount = sentCount;
@@ -365,6 +487,7 @@ export async function runNewsletterCampaign(
   run.matchedUsers = users.length;
   run.status = "completed";
   run.finishedAt = new Date();
+
   await run.save();
 
   return {

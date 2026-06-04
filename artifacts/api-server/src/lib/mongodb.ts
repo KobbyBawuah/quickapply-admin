@@ -1,10 +1,19 @@
 import mongoose from "mongoose";
-import { logger } from "./logger";
+import { logger } from "./logger.js";
 
 let isConnected = false;
 
+function getMongoDbName(): string {
+  return (
+    process.env.MONGO_DB_NAME ||
+    process.env.MONGODB_DB ||
+    "test"
+  ).trim();
+}
+
 export async function connectMongoDB(uri?: string): Promise<void> {
   const mongoUri = uri || process.env.MONGO_URI;
+
   if (!mongoUri) {
     throw new Error("MONGO_URI is not set");
   }
@@ -15,10 +24,20 @@ export async function connectMongoDB(uri?: string): Promise<void> {
 
   try {
     await mongoose.connect(mongoUri, {
-      dbName: process.env.MONGO_DB_NAME || "qap_demo",
+      dbName: getMongoDbName(),
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
     });
+
     isConnected = true;
-    logger.info("MongoDB connected");
+
+    logger.info(
+      {
+        dbName: mongoose.connection.db?.databaseName,
+        readyState: mongoose.connection.readyState,
+      },
+      "MongoDB connected"
+    );
   } catch (err) {
     logger.error({ err }, "MongoDB connection failed");
     throw err;
@@ -29,15 +48,32 @@ export async function testMongoConnection(
   uri: string,
   dbName?: string,
   collection?: string
-): Promise<{ success: boolean; message: string; databaseName?: string; userCount?: number }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  databaseName?: string;
+  userCount?: number;
+}> {
   const conn = mongoose.createConnection();
+
   try {
-    await conn.openUri(uri, { dbName: dbName || "qap_demo" });
+    await conn.openUri(uri, {
+      dbName: dbName || getMongoDbName(),
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
+    });
+
     const db = conn.db;
-    if (!db) throw new Error("Could not get db");
+
+    if (!db) {
+      throw new Error("Could not access MongoDB database");
+    }
+
     const colName = collection || process.env.USERS_COLLECTION || "users";
     const count = await db.collection(colName).countDocuments();
+
     await conn.close();
+
     return {
       success: true,
       message: `Connected successfully. Found ${count} users.`,
@@ -45,8 +81,16 @@ export async function testMongoConnection(
       userCount: count,
     };
   } catch (err: any) {
-    try { await conn.close(); } catch {}
-    return { success: false, message: err.message || "Connection failed" };
+    try {
+      await conn.close();
+    } catch {
+      // ignore
+    }
+
+    return {
+      success: false,
+      message: err?.message || "Connection failed",
+    };
   }
 }
 
