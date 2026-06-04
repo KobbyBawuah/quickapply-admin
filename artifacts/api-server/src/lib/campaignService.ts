@@ -3,7 +3,6 @@ import { CampaignRun } from "../models/CampaignRun.js";
 import { ApprovedContentTemplate } from "../models/ApprovedContentTemplate.js";
 import {
   getUserCollection,
-  buildUserQuery,
   computeDaysInactive,
   getUserActivityDate,
   getUserDisplayName,
@@ -29,86 +28,33 @@ type CampaignResult = {
   message: string;
 };
 
-function bool(value: any): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-function num(value: any): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function iso(value: any): string | null {
-  if (!value) return null;
-
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
-
-export function normalizeCampaignUser(user: any) {
-  const activityDate = getUserActivityDate(user);
-
-  return {
-    ...user,
-    _id: user._id?.toString(),
-
-    name: getUserDisplayName(user),
-    firstName: user.firstName || "",
-    lastName: user.lastName || "",
-    email: user.email || "",
-
-    createdAt: iso(user.createdAt),
-    updatedAt: iso(user.updatedAt),
-
-    lastLoginAt: iso(user.lastLoginAt),
-
-    // Same as Users page
-    lastActiveAt: activityDate ? activityDate.toISOString() : null,
-    daysInactive: computeDaysInactive(user),
-
-    subscription: bool(user.subscription),
-    subscriptionStatus: getUserSubscriptionStatus(user),
-    subscriptionPlanName: user.subscriptionPlanName || "",
-    plan: getUserPlan(user),
-
-    loginFrom: user.loginFrom || "",
-    language: user.language || "",
-    country: user.country || "",
-
-    emailVerified: bool(user.emailVerified),
-    isFirstLogin: bool(user.isFirstLogin),
-    doNotContact: bool(user.doNotContact),
-
-    textSize: user.textSize || "",
-    fontFamily: user.fontFamily || "",
-
-    answerClicksCount: num(user.answerClicksCount),
-    resumeClicksCount: num(user.resumeClicksCount),
-    coverLetterClicksCount: num(user.coverLetterClicksCount),
-    improvementClicksCount: num(
-      user.improvementClicksCount || user.improvmentClicksCount
-    ),
-    resumeGradeClicksCount: num(user.resumeGradeClicksCount),
-    resumeGradeAiFixClicksCount: num(user.resumeGradeAiFixClicksCount),
-    followUpEmailClicksCount: num(user.followUpEmailClicksCount),
-    connectionRequestClicksCount: num(user.connectionRequestClicksCount),
-    scrapeJobUrlClicksCount: num(user.scrapeJobUrlClicksCount),
-    fraudCheckClicksCount: num(user.fraudCheckClicksCount),
-    interviewPrepClicksCount: num(user.interviewPrepClicksCount),
-
-    linkedinProfile: user.linkedinProfile || user.linkedInProfile || "",
-    linkedInProfile: user.linkedinProfile || user.linkedInProfile || "",
-    websiteLink: user.websiteLink || "",
-  };
-}
-
 function getUserName(user: any): string {
   return (
     user?.name ||
+    getUserDisplayName(user) ||
     `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
     user?.email ||
     "there"
   );
+}
+
+function normalizeCampaignUser(user: any) {
+  const activityDate = getUserActivityDate(user);
+  const daysInactive = computeDaysInactive(user);
+
+  return {
+    ...user,
+    _id: user._id?.toString(),
+    name: getUserName(user),
+    email: user.email || "",
+    lastActiveAt: activityDate ? activityDate.toISOString() : null,
+    activityDate: activityDate ? activityDate.toISOString() : null,
+    daysInactive,
+    plan: getUserPlan(user),
+    subscriptionStatus: getUserSubscriptionStatus(user),
+    subscriptionPlanName: user.subscriptionPlanName || "",
+    doNotContact: user.doNotContact === true,
+  };
 }
 
 function buildSafeTemplateVars(
@@ -125,36 +71,47 @@ function buildSafeTemplateVars(
   } as Record<string, any> & { name: string };
 }
 
-function getInactiveFilterQuery() {
-  // This is the exact same filter path used by Users page when filter = inactive.
-  return buildUserQuery("inactive", "");
-}
+export async function getInactiveUsers(): Promise<any[]> {
+  const settings = await getSettings();
 
-function getNewsletterFilterQuery() {
-  return {
-    email: { $exists: true, $ne: "" },
-    doNotContact: { $ne: true },
-  };
-}
+  const inactiveDays = Number(settings.inactiveDaysThreshold || 7);
+  const safeInactiveDays =
+    Number.isFinite(inactiveDays) && inactiveDays > 0 ? inactiveDays : 7;
 
-async function filterRecentlyEmailedUsers(
-  users: any[],
-  campaignType: "inactive" | "newsletter",
-  cooldownDays: number
-): Promise<any[]> {
-  const safeCooldownDays = Number.isFinite(cooldownDays) ? cooldownDays : 7;
+  const cooloff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-  const cooldownDate = new Date(
-    Date.now() - safeCooldownDays * 24 * 60 * 60 * 1000
-  );
+  const col = await getUserCollection();
+
+  const rawUsers = await col
+    .find({
+      email: { $exists: true, $ne: "" },
+      doNotContact: { $ne: true },
+    })
+    .sort({
+      lastLoginAt: -1,
+      lastActiveAt: -1,
+      loginAt: -1,
+      createdAt: -1,
+      updatedAt: -1,
+    })
+    .toArray();
+
+  const inactiveUsers = rawUsers
+    .map(normalizeCampaignUser)
+    .filter((user) => {
+      return (
+        typeof user.daysInactive === "number" &&
+        user.daysInactive >= safeInactiveDays
+      );
+    });
 
   const filtered: any[] = [];
 
-  for (const user of users) {
+  for (const user of inactiveUsers) {
     const recentLog = await EmailLog.findOne({
       recipientEmail: user.email,
-      campaignType,
-      sentAt: { $gte: cooldownDate },
+      campaignType: "inactive",
+      sentAt: { $gte: cooloff },
       status: "sent",
     });
 
@@ -166,51 +123,42 @@ async function filterRecentlyEmailedUsers(
   return filtered;
 }
 
-export async function getInactiveUsers(): Promise<any[]> {
-  const col = await getUserCollection();
-
-  const rawUsers = await col
-    .find(getInactiveFilterQuery())
-    // Same practical order as Users page inactive filter.
-    .sort({ lastLoginAt: -1, createdAt: -1, updatedAt: -1 })
-    .toArray();
-
-  const normalizedUsers = rawUsers
-    .map(normalizeCampaignUser)
-    .filter((user) => {
-      const daysInactive = Number(user.daysInactive);
-
-      return (
-        user.email &&
-        !user.doNotContact &&
-        Number.isFinite(daysInactive) &&
-        daysInactive >= 7
-      );
-    });
-
-  return filterRecentlyEmailedUsers(normalizedUsers, "inactive", 7);
-}
-
 export async function getNewsletterUsers(): Promise<any[]> {
   const settings = await getSettings();
 
   const intervalDays = Number(settings.newsletterIntervalDays || 14);
-  const safeIntervalDays = Number.isFinite(intervalDays) ? intervalDays : 14;
+  const safeIntervalDays =
+    Number.isFinite(intervalDays) && intervalDays > 0 ? intervalDays : 14;
+
+  const cooloff = new Date(
+    Date.now() - safeIntervalDays * 24 * 60 * 60 * 1000
+  );
 
   const col = await getUserCollection();
 
-  const rawUsers = await col
-    .find(getNewsletterFilterQuery())
-    .sort({ lastLoginAt: -1, createdAt: -1, updatedAt: -1 })
+  const users = await col
+    .find({
+      email: { $exists: true, $ne: "" },
+      doNotContact: { $ne: true },
+    })
     .toArray();
 
-  const normalizedUsers = rawUsers.map(normalizeCampaignUser);
+  const filtered: any[] = [];
 
-  return filterRecentlyEmailedUsers(
-    normalizedUsers,
-    "newsletter",
-    safeIntervalDays
-  );
+  for (const user of users) {
+    const recentLog = await EmailLog.findOne({
+      recipientEmail: user.email,
+      campaignType: "newsletter",
+      sentAt: { $gte: cooloff },
+      status: "sent",
+    });
+
+    if (!recentLog) {
+      filtered.push(normalizeCampaignUser(user));
+    }
+  }
+
+  return filtered;
 }
 
 async function incrementRun(
@@ -225,7 +173,7 @@ async function incrementRun(
   try {
     await CampaignRun.updateOne({ _id: runId }, { $set: fields });
   } catch {
-    // Non-fatal
+    // non-fatal
   }
 }
 
@@ -252,10 +200,9 @@ export async function runInactiveCampaign(
 
   const settings = await getSettings();
   const users = await getInactiveUsers();
-  const maxEmails = Number(settings.maxEmailsPerRun || 50);
-  const safeMaxEmails = Number.isFinite(maxEmails) ? maxEmails : 50;
+
   const delay = Number(settings.delayBetweenEmailsMs ?? 1000);
-  const safeDelay = Number.isFinite(delay) ? delay : 1000;
+  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 1000;
 
   const templates = await ApprovedContentTemplate.find({
     contentType: "inactive_email",
@@ -289,8 +236,7 @@ export async function runInactiveCampaign(
   let failedCount = 0;
   let skippedCount = 0;
 
-  const usersToProcess = users.slice(0, safeMaxEmails);
-  skippedCount += users.length - usersToProcess.length;
+  const usersToProcess = users;
 
   await incrementRun(run._id, {
     matchedUsers: users.length,
@@ -424,9 +370,12 @@ export async function runNewsletterCampaign(
   const settings = await getSettings();
   const users = await getNewsletterUsers();
   const maxEmails = Number(settings.maxEmailsPerRun || 50);
-  const safeMaxEmails = Number.isFinite(maxEmails) ? maxEmails : 50;
+  const safeMaxEmails =
+    Number.isFinite(maxEmails) && maxEmails > 0 ? Math.floor(maxEmails) : 50;
+
   const delay = Number(settings.delayBetweenEmailsMs ?? 1000);
-  const safeDelay = Number.isFinite(delay) ? delay : 1000;
+  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 1000;
+
   const topic = customTopic || getNextNewsletterTopic();
 
   let templates: any[];

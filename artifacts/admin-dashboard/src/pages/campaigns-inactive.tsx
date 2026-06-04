@@ -44,7 +44,9 @@ function apiCall(path: string, options?: RequestInit) {
     const data = await res.json();
 
     if (!res.ok) {
-      throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+      throw new Error(
+        data.error || data.message || `Request failed: ${res.status}`
+      );
     }
 
     return data;
@@ -62,18 +64,29 @@ function getDisplayName(user: any): string {
 function getActivityDate(user: any): string | null {
   return (
     user?.activityDate ||
-    user?.lastLoginAt ||
     user?.lastActiveAt ||
+    user?.lastLoginAt ||
     user?.loginAt ||
     user?.createdAt ||
     null
   );
 }
 
+function getPlanText(user: any): string {
+  return (
+    user?.plan ||
+    user?.subscriptionPlanName ||
+    user?.subscriptionStatus ||
+    "—"
+  );
+}
+
 export default function InactiveCampaignPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
-  const [approvedTemplateCount, setApprovedTemplateCount] = useState<number | null>(null);
+  const [approvedTemplateCount, setApprovedTemplateCount] = useState<
+    number | null
+  >(null);
   const [page, setPage] = useState(1);
 
   const qc = useQueryClient();
@@ -81,8 +94,12 @@ export default function InactiveCampaignPage() {
 
   useEffect(() => {
     apiCall("/approved-templates?contentType=inactive_email&status=active&limit=1")
-      .then((d) => setApprovedTemplateCount(d.total ?? d.templates?.length ?? 0))
-      .catch(() => setApprovedTemplateCount(0));
+      .then((data) => {
+        setApprovedTemplateCount(data.total ?? data.templates?.length ?? 0);
+      })
+      .catch(() => {
+        setApprovedTemplateCount(0);
+      });
   }, []);
 
   const {
@@ -95,13 +112,19 @@ export default function InactiveCampaignPage() {
     },
   });
 
-  const runsParams = { type: "inactive" as const, limit: 5 };
+  const runsParams = {
+    type: "inactive" as const,
+    limit: 5,
+  };
 
-  const { data: runsData, refetch: refetchRuns } = useGetCampaignRuns(runsParams, {
-    query: {
-      queryKey: getGetCampaignRunsQueryKey(runsParams),
-    },
-  });
+  const { data: runsData, refetch: refetchRuns } = useGetCampaignRuns(
+    runsParams,
+    {
+      query: {
+        queryKey: getGetCampaignRunsQueryKey(runsParams),
+      },
+    }
+  );
 
   const run = useRunInactiveCampaign({
     mutation: {
@@ -112,8 +135,10 @@ export default function InactiveCampaignPage() {
           setActiveRunId(data.runId);
         }
       },
-      onError(e: unknown) {
-        toast.error(e instanceof Error ? e.message : "Campaign failed to start");
+      onError(error: unknown) {
+        toast.error(
+          error instanceof Error ? error.message : "Campaign failed to start"
+        );
         setConfirmOpen(false);
       },
     },
@@ -123,7 +148,8 @@ export default function InactiveCampaignPage() {
   const total = preview?.total ?? users.length;
   const lastRun = runsData?.runs?.[0];
 
-  const hasApprovedTemplates = approvedTemplateCount !== null && approvedTemplateCount > 0;
+  const hasApprovedTemplates =
+    approvedTemplateCount !== null && approvedTemplateCount > 0;
   const templateChecked = approvedTemplateCount !== null;
 
   const totalPages = Math.max(1, Math.ceil(users.length / PAGE_SIZE));
@@ -132,6 +158,9 @@ export default function InactiveCampaignPage() {
     const start = (page - 1) * PAGE_SIZE;
     return users.slice(start, start + PAGE_SIZE);
   }, [users, page]);
+
+  const from = users.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, users.length);
 
   useEffect(() => {
     setPage(1);
@@ -146,8 +175,12 @@ export default function InactiveCampaignPage() {
       toast.error(`Campaign failed: ${runData.notes || "Unknown error"}`);
     }
 
-    qc.invalidateQueries({ queryKey: getPreviewInactiveCampaignQueryKey() });
-    qc.invalidateQueries({ queryKey: getGetCampaignRunsQueryKey(runsParams) });
+    qc.invalidateQueries({
+      queryKey: getPreviewInactiveCampaignQueryKey(),
+    });
+    qc.invalidateQueries({
+      queryKey: getGetCampaignRunsQueryKey(runsParams),
+    });
   }
 
   function handleProgressDismiss() {
@@ -156,27 +189,39 @@ export default function InactiveCampaignPage() {
     refetchPreview();
   }
 
+  function handleRefresh() {
+    setPage(1);
+    refetchPreview();
+  }
+
   return (
     <Layout>
       <div className="p-6 space-y-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-xl font-bold text-foreground">Inactive User Campaign</h1>
+            <h1 className="text-xl font-bold text-foreground">
+              Inactive User Campaign
+            </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Scheduled every <strong>Monday at 9:00 AM</strong> (America/New_York).
-              Targets free/trial/non-paid users inactive 7+ days.
+              Scheduled every <strong>Monday at 9:00 AM</strong>{" "}
+              (America/New_York). Targets all users inactive 7+ days.
             </p>
           </div>
 
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetchPreview()}>
+            <Button variant="outline" size="sm" onClick={handleRefresh}>
               <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
               Refresh
             </Button>
 
             <Button
               onClick={() => setConfirmOpen(true)}
-              disabled={run.isPending || !!activeRunId || total === 0 || !hasApprovedTemplates}
+              disabled={
+                run.isPending ||
+                !!activeRunId ||
+                total === 0 ||
+                !hasApprovedTemplates
+              }
               className="gap-1.5"
             >
               <Play className="w-3.5 h-3.5" />
@@ -188,11 +233,14 @@ export default function InactiveCampaignPage() {
         {templateChecked && !hasApprovedTemplates && (
           <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-4">
             <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-800">No approved email templates</p>
+              <p className="text-sm font-medium text-amber-800">
+                No approved email templates
+              </p>
               <p className="text-xs text-amber-700 mt-0.5">
-                Campaign sending requires an approved active inactive-email template.
-                Generate and approve one first.
+                Campaign sending requires an approved active inactive-email
+                template. Generate and approve one first.
               </p>
             </div>
 
@@ -221,6 +269,7 @@ export default function InactiveCampaignPage() {
             <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center">
               <Users className="w-4 h-4 text-amber-600" />
             </div>
+
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                 Eligible Recipients
@@ -235,6 +284,7 @@ export default function InactiveCampaignPage() {
             <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center">
               <Clock className="w-4 h-4 text-blue-600" />
             </div>
+
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                 Last Run
@@ -249,6 +299,7 @@ export default function InactiveCampaignPage() {
             <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center">
               <Play className="w-4 h-4 text-emerald-600" />
             </div>
+
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                 Last Status
@@ -269,11 +320,7 @@ export default function InactiveCampaignPage() {
                 Preview — Eligible Users
               </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Showing {paginatedUsers.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
-                {" - "}
-                {Math.min(page * PAGE_SIZE, users.length)}
-                {" of "}
-                {total}
+                Showing {from} - {to} of {total}
               </p>
             </div>
 
@@ -282,7 +329,7 @@ export default function InactiveCampaignPage() {
                 size="sm"
                 variant="outline"
                 disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
                 Prev
@@ -296,7 +343,9 @@ export default function InactiveCampaignPage() {
                 size="sm"
                 variant="outline"
                 disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() =>
+                  setPage((current) => Math.min(totalPages, current + 1))
+                }
               >
                 Next
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -328,10 +377,10 @@ export default function InactiveCampaignPage() {
 
               <tbody>
                 {previewLoading &&
-                  [...Array(5)].map((_, i) => (
-                    <tr key={i} className="border-b border-border/50">
-                      {[...Array(5)].map((_, j) => (
-                        <td key={j} className="px-4 py-3">
+                  [...Array(5)].map((_, index) => (
+                    <tr key={index} className="border-b border-border/50">
+                      {[...Array(5)].map((_, cellIndex) => (
+                        <td key={cellIndex} className="px-4 py-3">
                           <div className="h-4 bg-muted rounded animate-pulse" />
                         </td>
                       ))}
@@ -340,26 +389,43 @@ export default function InactiveCampaignPage() {
 
                 {!previewLoading && users.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-center py-10 text-muted-foreground">
+                    <td
+                      colSpan={5}
+                      className="text-center py-10 text-muted-foreground"
+                    >
                       No eligible users
                     </td>
                   </tr>
                 )}
 
-                {paginatedUsers.map((u: any) => (
-                  <tr key={u._id} className="border-b border-border/50 hover:bg-muted/20">
-                    <td className="px-4 py-3 font-medium">{getDisplayName(u)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {formatDate(getActivityDate(u))}
+                {paginatedUsers.map((user: any) => (
+                  <tr
+                    key={user._id}
+                    className="border-b border-border/50 hover:bg-muted/20"
+                  >
+                    <td className="px-4 py-3 font-medium">
+                      {getDisplayName(user)}
                     </td>
+
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {user.email}
+                    </td>
+
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {formatDate(getActivityDate(user))}
+                    </td>
+
                     <td className="px-4 py-3">
                       <span className="font-mono text-xs text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                        {typeof u.daysInactive === "number" ? u.daysInactive : "?"}d
+                        {typeof user.daysInactive === "number"
+                          ? user.daysInactive
+                          : "?"}
+                        d
                       </span>
                     </td>
+
                     <td className="px-4 py-3 text-muted-foreground capitalize">
-                      {u.plan || u.subscriptionPlanName || u.subscriptionStatus || "—"}
+                      {getPlanText(user)}
                     </td>
                   </tr>
                 ))}
@@ -371,7 +437,9 @@ export default function InactiveCampaignPage() {
         {runsData?.runs && runsData.runs.length > 0 && (
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="px-4 py-3 border-b border-border bg-muted/30">
-              <h2 className="text-sm font-semibold text-foreground">Recent Runs</h2>
+              <h2 className="text-sm font-semibold text-foreground">
+                Recent Runs
+              </h2>
             </div>
 
             <table className="w-full text-sm">
@@ -402,26 +470,31 @@ export default function InactiveCampaignPage() {
               </thead>
 
               <tbody>
-                {runsData.runs.map((r) => (
-                  <tr key={r._id} className="border-b border-border/50">
+                {runsData.runs.map((campaignRun) => (
+                  <tr
+                    key={campaignRun._id}
+                    className="border-b border-border/50"
+                  >
                     <td className="px-4 py-3 text-muted-foreground">
-                      {formatDateTime(r.startedAt)}
+                      {formatDateTime(campaignRun.startedAt)}
                     </td>
                     <td className="px-4 py-3 capitalize text-muted-foreground">
-                      {r.triggerType}
+                      {campaignRun.triggerType}
                     </td>
-                    <td className="px-4 py-3 font-mono">{r.matchedUsers ?? "—"}</td>
+                    <td className="px-4 py-3 font-mono">
+                      {campaignRun.matchedUsers ?? "—"}
+                    </td>
                     <td className="px-4 py-3 font-mono text-emerald-700">
-                      {r.sentCount}
+                      {campaignRun.sentCount}
                     </td>
                     <td className="px-4 py-3 font-mono text-red-600">
-                      {r.failedCount}
+                      {campaignRun.failedCount}
                     </td>
                     <td className="px-4 py-3 font-mono text-amber-700">
-                      {r.skippedCount}
+                      {campaignRun.skippedCount}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={r.status} />
+                      <StatusBadge status={campaignRun.status} />
                     </td>
                   </tr>
                 ))}
