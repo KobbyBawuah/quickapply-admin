@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   usePreviewNewsletterCampaign,
   useRunNewsletterCampaign,
@@ -22,24 +22,72 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatDate, formatDateTime } from "@/lib/utils";
-import { Play, Calendar, Users, RefreshCw, Pencil, Check, X, AlertTriangle, BookCheck } from "lucide-react";
+import {
+  Play,
+  Calendar,
+  Users,
+  RefreshCw,
+  Pencil,
+  Check,
+  X,
+  AlertTriangle,
+  BookCheck,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+
+const PAGE_SIZE = 25;
 
 function apiCall(path: string, options?: RequestInit) {
   const token = localStorage.getItem("qap_admin_token");
   const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+
   return fetch(`${base}/api${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(options?.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(options?.headers || {}),
+    },
   }).then(async (res) => {
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+
+    if (!res.ok) {
+      throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+    }
+
     return data;
   });
 }
 
-interface ApprovedTemplate { _id: string; title: string; subject: string; status: string; isDefault: boolean; }
+interface ApprovedTemplate {
+  _id: string;
+  title: string;
+  subject: string;
+  status: string;
+  isDefault: boolean;
+}
+
+function getDisplayName(user: any): string {
+  return (
+    user?.name ||
+    `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim() ||
+    "—"
+  );
+}
+
+function getActivityDate(user: any): string | null {
+  return (
+    user?.activityDate ||
+    user?.lastLoginAt ||
+    user?.lastActiveAt ||
+    user?.loginAt ||
+    user?.createdAt ||
+    null
+  );
+}
 
 export default function NewsletterCampaignPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -48,6 +96,8 @@ export default function NewsletterCampaignPage() {
   const [topicDraft, setTopicDraft] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("auto");
   const [approvedTemplates, setApprovedTemplates] = useState<ApprovedTemplate[]>([]);
+  const [page, setPage] = useState(1);
+
   const qc = useQueryClient();
   const [, navigate] = useLocation();
 
@@ -61,18 +111,28 @@ export default function NewsletterCampaignPage() {
     data: preview,
     isLoading: previewLoading,
     refetch,
-  } = usePreviewNewsletterCampaign({ query: { queryKey: getPreviewNewsletterCampaignQueryKey() } });
+  } = usePreviewNewsletterCampaign({
+    query: {
+      queryKey: getPreviewNewsletterCampaignQueryKey(),
+    },
+  });
 
   const runsParams = { type: "newsletter" as const, limit: 5 };
+
   const { data: runsData, refetch: refetchRuns } = useGetCampaignRuns(runsParams, {
-    query: { queryKey: getGetCampaignRunsQueryKey(runsParams) },
+    query: {
+      queryKey: getGetCampaignRunsQueryKey(runsParams),
+    },
   });
 
   const run = useRunNewsletterCampaign({
     mutation: {
       onSuccess(data) {
         setConfirmOpen(false);
-        if (data.runId) setActiveRunId(data.runId);
+
+        if (data.runId) {
+          setActiveRunId(data.runId);
+        }
       },
       onError(e: unknown) {
         toast.error(e instanceof Error ? e.message : "Campaign failed to start");
@@ -82,26 +142,43 @@ export default function NewsletterCampaignPage() {
   });
 
   const users = preview?.users ?? [];
-  const total = preview?.total ?? 0;
+  const total = preview?.total ?? users.length;
   const nextTopic = preview?.nextTopic ?? "";
   const lastRun = runsData?.runs?.[0];
   const hasApprovedTemplates = approvedTemplates.length > 0;
+
+  const totalPages = Math.max(1, Math.ceil(users.length / PAGE_SIZE));
+
+  const paginatedUsers = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return users.slice(start, start + PAGE_SIZE);
+  }, [users, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [total]);
 
   function handleRunConfirm() {
     run.mutate({
       data: {
         topic: editingTopic ? topicDraft : undefined,
-        templateId: selectedTemplate && selectedTemplate !== "auto" ? selectedTemplate : undefined,
+        templateId:
+          selectedTemplate && selectedTemplate !== "auto"
+            ? selectedTemplate
+            : undefined,
       },
     });
   }
 
   function handleProgressComplete(runData: any) {
     if (runData.status === "completed") {
-      toast.success(`Campaign complete — sent: ${runData.sentCount}, failed: ${runData.failedCount}, skipped: ${runData.skippedCount}`);
+      toast.success(
+        `Campaign complete — sent: ${runData.sentCount}, failed: ${runData.failedCount}, skipped: ${runData.skippedCount}`
+      );
     } else {
       toast.error(`Campaign failed: ${runData.notes || "Unknown error"}`);
     }
+
     qc.invalidateQueries({ queryKey: getPreviewNewsletterCampaignQueryKey() });
     qc.invalidateQueries({ queryKey: getGetCampaignRunsQueryKey(runsParams) });
   }
@@ -115,19 +192,21 @@ export default function NewsletterCampaignPage() {
   return (
     <Layout>
       <div className="p-6 space-y-6">
-        {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-xl font-bold text-foreground">Newsletter Campaign</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Scheduled every <strong>14 days at 10:00 AM</strong> (America/New_York). Sends to all non-DNC users.
+              Scheduled every <strong>14 days at 10:00 AM</strong> (America/New_York).
+              Sends to all non-DNC users.
             </p>
           </div>
+
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
               Refresh
             </Button>
+
             <Button
               onClick={() => setConfirmOpen(true)}
               disabled={run.isPending || !!activeRunId || total === 0 || !hasApprovedTemplates}
@@ -139,17 +218,25 @@ export default function NewsletterCampaignPage() {
           </div>
         </div>
 
-        {/* No approved template warning */}
         {!hasApprovedTemplates && (
           <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-4">
             <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-amber-800">No approved newsletter templates</p>
+              <p className="text-sm font-medium text-amber-800">
+                No approved newsletter templates
+              </p>
               <p className="text-xs text-amber-700 mt-0.5">
-                Campaign sending requires an approved active newsletter template. Generate and approve one first.
+                Campaign sending requires an approved active newsletter template.
+                Generate and approve one first.
               </p>
             </div>
-            <Button size="sm" variant="outline" className="border-amber-300 text-amber-800 hover:bg-amber-100 flex-shrink-0 gap-1.5" onClick={() => navigate("/ai/generator")}>
+
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-300 text-amber-800 hover:bg-amber-100 flex-shrink-0 gap-1.5"
+              onClick={() => navigate("/ai/generator")}
+            >
               <BookCheck className="w-3.5 h-3.5" />
               AI Generator
             </Button>
@@ -159,119 +246,237 @@ export default function NewsletterCampaignPage() {
         {hasApprovedTemplates && (
           <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
             <Check className="w-3.5 h-3.5" />
-            {approvedTemplates.length} approved newsletter template{approvedTemplates.length !== 1 ? "s" : ""} ready
+            {approvedTemplates.length} approved newsletter template
+            {approvedTemplates.length !== 1 ? "s" : ""} ready
           </div>
         )}
 
-        {/* Info cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-violet-50 border border-violet-100 flex items-center justify-center">
               <Users className="w-4 h-4 text-violet-600" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Eligible Recipients</p>
-              <p className="text-2xl font-bold text-foreground tabular-nums">{previewLoading ? "…" : total.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
+                Eligible Recipients
+              </p>
+              <p className="text-2xl font-bold text-foreground tabular-nums">
+                {previewLoading ? "…" : total.toLocaleString()}
+              </p>
             </div>
           </div>
+
           <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center">
               <Calendar className="w-4 h-4 text-blue-600" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Last Run</p>
-              <p className="text-sm font-semibold text-foreground">{lastRun ? formatDateTime(lastRun.startedAt) : "Never"}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
+                Last Run
+              </p>
+              <p className="text-sm font-semibold text-foreground">
+                {lastRun ? formatDateTime(lastRun.startedAt) : "Never"}
+              </p>
             </div>
           </div>
+
           <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center">
               <Play className="w-4 h-4 text-emerald-600" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Last Status</p>
-              {lastRun ? <StatusBadge status={lastRun.status} className="mt-0.5" /> : <p className="text-sm text-muted-foreground">—</p>}
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
+                Last Status
+              </p>
+              {lastRun ? (
+                <StatusBadge status={lastRun.status} className="mt-0.5" />
+              ) : (
+                <p className="text-sm text-muted-foreground">—</p>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Topic + template config */}
         <div className="bg-card border border-border rounded-lg p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Campaign Configuration</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            Campaign Configuration
+          </h2>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label>Next Topic</Label>
+
               {editingTopic ? (
                 <div className="flex gap-2">
-                  <Input value={topicDraft} onChange={(e) => setTopicDraft(e.target.value)} placeholder="e.g., Resume Tips for 2026" className="flex-1" />
-                  <Button size="sm" variant="outline" onClick={() => setEditingTopic(false)}><Check className="w-4 h-4" /></Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setEditingTopic(false); setTopicDraft(""); }}><X className="w-4 h-4" /></Button>
+                  <Input
+                    value={topicDraft}
+                    onChange={(e) => setTopicDraft(e.target.value)}
+                    placeholder="e.g., Resume Tips for 2026"
+                    className="flex-1"
+                  />
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setEditingTopic(false)}
+                  >
+                    <Check className="w-4 h-4" />
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setEditingTopic(false);
+                      setTopicDraft("");
+                    }}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="flex-1 text-sm text-foreground border border-border rounded-md px-3 py-2 bg-muted/30">
                     {nextTopic || "Auto-selected"}
                   </span>
-                  <Button size="sm" variant="outline" onClick={() => { setTopicDraft(nextTopic); setEditingTopic(true); }}>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setTopicDraft(nextTopic);
+                      setEditingTopic(true);
+                    }}
+                  >
                     <Pencil className="w-3.5 h-3.5" />
                   </Button>
                 </div>
               )}
             </div>
+
             <div className="space-y-1.5">
-              <Label>Approved Template (auto-selects latest if none chosen)</Label>
+              <Label>Approved Template</Label>
+
               <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
                 <SelectTrigger>
                   <SelectValue placeholder="Auto-select active approved template" />
                 </SelectTrigger>
+
                 <SelectContent>
                   <SelectItem value="auto">Auto-select latest approved</SelectItem>
+
                   {approvedTemplates.map((t) => (
                     <SelectItem key={t._id} value={t._id}>
-                      {t.title}{t.isDefault ? " ★" : ""}
+                      {t.title}
+                      {t.isDefault ? " ★" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+
               {approvedTemplates.length === 0 && (
-                <p className="text-xs text-amber-600">No approved templates — approve one in AI Content first</p>
+                <p className="text-xs text-amber-600">
+                  No approved templates — approve one in AI Content first
+                </p>
               )}
             </div>
           </div>
         </div>
 
-        {/* Preview */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/30">
-            <h2 className="text-sm font-semibold text-foreground">Preview — Eligible Users</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Showing first {Math.min(users.length, 25)} of {total}</p>
+          <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                Preview — Eligible Users
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Showing {paginatedUsers.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
+                {" - "}
+                {Math.min(page * PAGE_SIZE, users.length)}
+                {" of "}
+                {total}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Prev
+              </Button>
+
+              <span className="text-xs text-muted-foreground">
+                Page {page} / {totalPages}
+              </span>
+
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/20">
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Name</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Email</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Last Login</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Subscription</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Name
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Email
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Last Activity
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Subscription
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
-                {previewLoading && [...Array(5)].map((_, i) => (
-                  <tr key={i} className="border-b border-border/50">
-                    {[...Array(4)].map((_, j) => (
-                      <td key={j} className="px-4 py-3"><div className="h-4 bg-muted rounded animate-pulse" /></td>
-                    ))}
-                  </tr>
-                ))}
+                {previewLoading &&
+                  [...Array(5)].map((_, i) => (
+                    <tr key={i} className="border-b border-border/50">
+                      {[...Array(4)].map((_, j) => (
+                        <td key={j} className="px-4 py-3">
+                          <div className="h-4 bg-muted rounded animate-pulse" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+
                 {!previewLoading && users.length === 0 && (
-                  <tr><td colSpan={4} className="text-center py-10 text-muted-foreground">No eligible users</td></tr>
+                  <tr>
+                    <td colSpan={4} className="text-center py-10 text-muted-foreground">
+                      No eligible users
+                    </td>
+                  </tr>
                 )}
-                {users.map((u) => (
+
+                {paginatedUsers.map((u: any) => (
                   <tr key={u._id} className="border-b border-border/50 hover:bg-muted/20">
-                    <td className="px-4 py-3 font-medium">{u.name || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || "—"}</td>
+                    <td className="px-4 py-3 font-medium">{getDisplayName(u)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{formatDate(u.lastLoginAt)}</td>
-                    <td className="px-4 py-3 capitalize text-muted-foreground">{u.subscriptionStatus || "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {formatDate(getActivityDate(u))}
+                    </td>
+                    <td className="px-4 py-3 capitalize text-muted-foreground">
+                      {u.subscriptionStatus ||
+                        u.subscriptionPlanName ||
+                        u.plan ||
+                        (u.subscription ? "active" : "—")}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -279,32 +484,57 @@ export default function NewsletterCampaignPage() {
           </div>
         </div>
 
-        {/* Recent runs */}
         {runsData?.runs && runsData.runs.length > 0 && (
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="px-4 py-3 border-b border-border bg-muted/30">
               <h2 className="text-sm font-semibold text-foreground">Recent Runs</h2>
             </div>
+
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/20">
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Started</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Trigger</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Sent</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Failed</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Skipped</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">Status</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Started
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Trigger
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Sent
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Failed
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Skipped
+                  </th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase">
+                    Status
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {runsData.runs.map((r) => (
                   <tr key={r._id} className="border-b border-border/50">
-                    <td className="px-4 py-3 text-muted-foreground">{formatDateTime(r.startedAt)}</td>
-                    <td className="px-4 py-3 capitalize text-muted-foreground">{r.triggerType}</td>
-                    <td className="px-4 py-3 font-mono text-emerald-700">{r.sentCount}</td>
-                    <td className="px-4 py-3 font-mono text-red-600">{r.failedCount}</td>
-                    <td className="px-4 py-3 font-mono text-amber-700">{r.skippedCount}</td>
-                    <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {formatDateTime(r.startedAt)}
+                    </td>
+                    <td className="px-4 py-3 capitalize text-muted-foreground">
+                      {r.triggerType}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-emerald-700">
+                      {r.sentCount}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-red-600">
+                      {r.failedCount}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-amber-700">
+                      {r.skippedCount}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={r.status} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

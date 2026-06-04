@@ -21,57 +21,6 @@ type CampaignResult = {
   message: string;
 };
 
-function inactiveUserQuery(cutoff: Date) {
-  return {
-    email: { $exists: true, $ne: "" },
-    doNotContact: { $ne: true },
-    $or: [
-      { subscriptionStatus: "free" },
-      { subscriptionStatus: "trial" },
-      { subscriptionStatus: "expired" },
-      { subscriptionStatus: "inactive" },
-      { plan: "free" },
-      { subscription: false },
-      { subscription: "false" },
-      { subscription: { $exists: false } },
-    ],
-    $and: [
-      {
-        $or: [
-          { lastLoginAt: { $lt: cutoff, $exists: true, $ne: null } },
-          { lastActiveAt: { $lt: cutoff, $exists: true, $ne: null } },
-          { loginAt: { $lt: cutoff, $exists: true, $ne: null } },
-          {
-            $and: [
-              {
-                $or: [
-                  { lastLoginAt: { $exists: false } },
-                  { lastLoginAt: null },
-                ],
-              },
-              {
-                $or: [
-                  { lastActiveAt: { $exists: false } },
-                  { lastActiveAt: null },
-                ],
-              },
-              {
-                $or: [{ loginAt: { $exists: false } }, { loginAt: null }],
-              },
-              {
-                $or: [
-                  { updatedAt: { $lt: cutoff, $exists: true } },
-                  { createdAt: { $lt: cutoff, $exists: true } },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-}
-
 function getUserName(user: any): string {
   return (
     user?.name ||
@@ -81,7 +30,11 @@ function getUserName(user: any): string {
   );
 }
 
-function buildSafeTemplateVars(user: any, settings: any, extra?: Record<string, any>) {
+function buildSafeTemplateVars(
+  user: any,
+  settings: any,
+  extra?: Record<string, any>
+) {
   const baseVars = buildTemplateVars(user, settings) as Record<string, any>;
 
   return {
@@ -91,37 +44,125 @@ function buildSafeTemplateVars(user: any, settings: any, extra?: Record<string, 
   } as Record<string, any> & { name: string };
 }
 
+function isTruthy(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function isPaidUser(user: any): boolean {
+  const subscription = isTruthy(user?.subscription);
+  const plan = String(user?.plan || user?.subscriptionPlanName || "").toLowerCase();
+  const status = String(user?.subscriptionStatus || "").toLowerCase();
+
+  return (
+    subscription ||
+    status === "active" ||
+    status === "paid" ||
+    plan.includes("monthly") ||
+    plan.includes("yearly") ||
+    plan.includes("premium") ||
+    plan.includes("pro")
+  );
+}
+
+function parseDate(value: unknown): Date | null {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(String(value));
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getUserActivityDate(user: any): Date | null {
+  return (
+    parseDate(user?.lastLoginAt) ||
+    parseDate(user?.lastActiveAt) ||
+    parseDate(user?.loginAt) ||
+    parseDate(user?.createdAt)
+  );
+}
+
+function getDaysInactive(user: any, now = new Date()): number | null {
+  const activityDate = getUserActivityDate(user);
+
+  if (!activityDate) return null;
+
+  const diffMs = now.getTime() - activityDate.getTime();
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  return Math.max(0, days);
+}
+
+function isEligibleForInactiveCampaign(
+  user: any,
+  thresholdDays: number,
+  now = new Date()
+): boolean {
+  if (!user?.email || typeof user.email !== "string") return false;
+  if (user.doNotContact === true) return false;
+  if (isPaidUser(user)) return false;
+
+  const daysInactive = getDaysInactive(user, now);
+
+  if (daysInactive === null) return false;
+
+  return daysInactive >= thresholdDays;
+}
+
+function serializeCampaignUser(user: any) {
+  const activityDate = getUserActivityDate(user);
+  const daysInactive = getDaysInactive(user);
+
+  return {
+    ...user,
+    name: getUserName(user),
+    activityDate,
+    daysInactive,
+    lastLoginAt: user?.lastLoginAt || null,
+  };
+}
+
 export async function getInactiveUsers(): Promise<any[]> {
   const settings = await getSettings();
 
   const inactiveDays = Number(settings.inactiveDaysThreshold || 7);
   const safeInactiveDays = Number.isFinite(inactiveDays) ? inactiveDays : 7;
 
-  const cutoff = new Date(
-    Date.now() - safeInactiveDays * 24 * 60 * 60 * 1000
-  );
+  const cooldown = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const col = await getUserCollection();
 
   const users = await col
-    .find(inactiveUserQuery(cutoff))
-    .sort({ lastLoginAt: 1, lastActiveAt: 1, updatedAt: 1, createdAt: 1 })
+    .find({
+      email: { $exists: true, $ne: "" },
+      doNotContact: { $ne: true },
+    })
     .toArray();
-
-  const cooloff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const filtered: any[] = [];
 
   for (const user of users) {
+    if (!isEligibleForInactiveCampaign(user, safeInactiveDays)) {
+      continue;
+    }
+
     const recentLog = await EmailLog.findOne({
       recipientEmail: user.email,
       campaignType: "inactive",
-      sentAt: { $gte: cooloff },
+      sentAt: { $gte: cooldown },
       status: "sent",
     });
 
-    if (!recentLog) filtered.push(user);
+    if (recentLog) continue;
+
+    filtered.push(serializeCampaignUser(user));
   }
+
+  filtered.sort((a, b) => {
+    const aDate = getUserActivityDate(a)?.getTime() ?? 0;
+    const bDate = getUserActivityDate(b)?.getTime() ?? 0;
+
+    return aDate - bDate;
+  });
 
   return filtered;
 }
@@ -132,7 +173,7 @@ export async function getNewsletterUsers(): Promise<any[]> {
   const intervalDays = Number(settings.newsletterIntervalDays || 14);
   const safeIntervalDays = Number.isFinite(intervalDays) ? intervalDays : 14;
 
-  const cooloff = new Date(
+  const cooldown = new Date(
     Date.now() - safeIntervalDays * 24 * 60 * 60 * 1000
   );
 
@@ -151,12 +192,21 @@ export async function getNewsletterUsers(): Promise<any[]> {
     const recentLog = await EmailLog.findOne({
       recipientEmail: user.email,
       campaignType: "newsletter",
-      sentAt: { $gte: cooloff },
+      sentAt: { $gte: cooldown },
       status: "sent",
     });
 
-    if (!recentLog) filtered.push(user);
+    if (!recentLog) {
+      filtered.push(serializeCampaignUser(user));
+    }
   }
+
+  filtered.sort((a, b) => {
+    const aDate = getUserActivityDate(a)?.getTime() ?? 0;
+    const bDate = getUserActivityDate(b)?.getTime() ?? 0;
+
+    return bDate - aDate;
+  });
 
   return filtered;
 }
@@ -201,6 +251,7 @@ export async function runInactiveCampaign(
   const settings = await getSettings();
   const users = await getInactiveUsers();
   const maxEmails = Number(settings.maxEmailsPerRun || 50);
+  const safeMaxEmails = Number.isFinite(maxEmails) && maxEmails > 0 ? maxEmails : 50;
   const delay = Number(settings.delayBetweenEmailsMs ?? 1000);
 
   const templates = await ApprovedContentTemplate.find({
@@ -235,7 +286,7 @@ export async function runInactiveCampaign(
   let failedCount = 0;
   let skippedCount = 0;
 
-  const usersToProcess = users.slice(0, maxEmails);
+  const usersToProcess = users.slice(0, safeMaxEmails);
   skippedCount += users.length - usersToProcess.length;
 
   await incrementRun(run._id, {
@@ -294,7 +345,11 @@ export async function runInactiveCampaign(
       failedCount++;
     }
 
-    await incrementRun(run._id, { sentCount, failedCount, skippedCount });
+    await incrementRun(run._id, {
+      sentCount,
+      failedCount,
+      skippedCount,
+    });
 
     if (delay > 0 && i < usersToProcess.length - 1) {
       await sleep(delay);
@@ -366,6 +421,7 @@ export async function runNewsletterCampaign(
   const settings = await getSettings();
   const users = await getNewsletterUsers();
   const maxEmails = Number(settings.maxEmailsPerRun || 50);
+  const safeMaxEmails = Number.isFinite(maxEmails) && maxEmails > 0 ? maxEmails : 50;
   const delay = Number(settings.delayBetweenEmailsMs ?? 1000);
   const topic = customTopic || getNextNewsletterTopic();
 
@@ -436,7 +492,7 @@ export async function runNewsletterCampaign(
   let failedCount = 0;
   let skippedCount = 0;
 
-  const usersToProcess = users.slice(0, maxEmails);
+  const usersToProcess = users.slice(0, safeMaxEmails);
   skippedCount += users.length - usersToProcess.length;
 
   await incrementRun(run._id, {
@@ -495,7 +551,11 @@ export async function runNewsletterCampaign(
       failedCount++;
     }
 
-    await incrementRun(run._id, { sentCount, failedCount, skippedCount });
+    await incrementRun(run._id, {
+      sentCount,
+      failedCount,
+      skippedCount,
+    });
 
     if (delay > 0 && i < usersToProcess.length - 1) {
       await sleep(delay);
