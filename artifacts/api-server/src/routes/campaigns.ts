@@ -8,13 +8,6 @@ import {
   getNewsletterUsers,
   getNextNewsletterTopic,
 } from "../lib/campaignService.js";
-import {
-  computeDaysInactive,
-  getUserActivityDate,
-  getUserDisplayName,
-  getUserPlan,
-  getUserSubscriptionStatus,
-} from "../lib/userQuery.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
@@ -24,81 +17,44 @@ function parsePage(value: unknown): number {
   return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
 }
 
-function parseLimit(value: unknown, fallback = 25, max = 100): number {
+function parseLimit(value: unknown): number {
   const limit = Number(value);
-  if (!Number.isFinite(limit) || limit <= 0) return fallback;
-  return Math.min(max, Math.floor(limit));
+  if (!Number.isFinite(limit) || limit <= 0) return 25;
+  return Math.min(100, Math.floor(limit));
 }
 
-function toIsoDate(value: unknown): string | null {
-  if (!value) return null;
-
-  const date = new Date(value as any);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function bool(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-function getPreviewPage<T>(items: T[], page: number, limit: number): T[] {
-  const start = (page - 1) * limit;
-  return items.slice(start, start + limit);
-}
-
-function serializeCampaignUser(user: any) {
-  const activityDate = getUserActivityDate(user);
-  const daysInactive = computeDaysInactive(user);
+function paginate<T>(items: T[], page: number, limit: number) {
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * limit;
+  const end = start + limit;
 
   return {
-    ...user,
-    _id: user._id?.toString(),
-
-    name: getUserDisplayName(user),
-    firstName: user.firstName || "",
-    lastName: user.lastName || "",
-    email: user.email || "",
-
-    createdAt: toIsoDate(user.createdAt),
-    updatedAt: toIsoDate(user.updatedAt),
-
-    lastLoginAt: toIsoDate(user.lastLoginAt),
-
-    // This is the same normalized activity date style used by the Users page.
-    lastActiveAt: activityDate ? activityDate.toISOString() : null,
-
-    // This fixes the -1d bug.
-    daysInactive,
-
-    doNotContact: bool(user.doNotContact),
-
-    subscription: bool(user.subscription),
-    subscriptionStatus: getUserSubscriptionStatus(user),
-    subscriptionPlanName: user.subscriptionPlanName || "",
-    plan: getUserPlan(user),
-
-    loginFrom: user.loginFrom || "",
-    language: user.language || "",
-    country: user.country || "",
-
-    emailVerified: bool(user.emailVerified),
-    isFirstLogin: bool(user.isFirstLogin),
+    items: items.slice(start, end),
+    total,
+    page: safePage,
+    limit,
+    totalPages,
   };
 }
 
 router.get("/campaigns/runs", requireAuth, async (req, res) => {
   try {
-    const { type } = req.query as Record<string, string>;
-
-    const pageNum = parsePage(req.query.page);
-    const limitNum = parseLimit(req.query.limit, 20, 100);
-    const skip = (pageNum - 1) * limitNum;
+    const { type, page = "1", limit = "20" } = req.query as Record<
+      string,
+      string
+    >;
 
     const query: any = {};
 
     if (type && type !== "all") {
       query.campaignType = type;
     }
+
+    const pageNum = parsePage(page);
+    const limitNum = parseLimit(limit);
+    const skip = (pageNum - 1) * limitNum;
 
     const [rawRuns, total] = await Promise.all([
       CampaignRun.find(query)
@@ -118,7 +74,8 @@ router.get("/campaigns/runs", requireAuth, async (req, res) => {
       runs,
       total,
       page: pageNum,
-      totalPages: Math.max(1, Math.ceil(total / limitNum)),
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
     });
   } catch (err: any) {
     req.log.error({ err }, "Failed to get campaign runs");
@@ -157,21 +114,18 @@ router.get("/campaigns/runs/:runId", requireAuth, async (req, res) => {
 
 router.get("/campaigns/inactive/preview", requireAuth, async (req, res) => {
   try {
-    const pageNum = parsePage(req.query.page);
-    const limitNum = parseLimit(req.query.limit, 25, 100);
+    const page = parsePage(req.query.page);
+    const limit = parseLimit(req.query.limit);
 
     const users = await getInactiveUsers();
-
-    const serialized = users.map(serializeCampaignUser);
-
-    const pagedUsers = getPreviewPage(serialized, pageNum, limitNum);
+    const paginated = paginate(users, page, limit);
 
     res.json({
-      users: pagedUsers,
-      total: serialized.length,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.max(1, Math.ceil(serialized.length / limitNum)),
+      users: paginated.items,
+      total: paginated.total,
+      page: paginated.page,
+      limit: paginated.limit,
+      totalPages: paginated.totalPages,
     });
   } catch (err: any) {
     req.log.error({ err }, "Failed to preview inactive campaign");
@@ -238,23 +192,19 @@ router.post("/campaigns/inactive/run", requireAuth, async (req, res) => {
 
 router.get("/campaigns/newsletter/preview", requireAuth, async (req, res) => {
   try {
-    const pageNum = parsePage(req.query.page);
-    const limitNum = parseLimit(req.query.limit, 25, 100);
+    const page = parsePage(req.query.page);
+    const limit = parseLimit(req.query.limit);
 
     const users = await getNewsletterUsers();
-
-    const serialized = users.map(serializeCampaignUser);
-
-    const pagedUsers = getPreviewPage(serialized, pageNum, limitNum);
-
+    const paginated = paginate(users, page, limit);
     const nextTopic = getNextNewsletterTopic();
 
     res.json({
-      users: pagedUsers,
-      total: serialized.length,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.max(1, Math.ceil(serialized.length / limitNum)),
+      users: paginated.items,
+      total: paginated.total,
+      page: paginated.page,
+      limit: paginated.limit,
+      totalPages: paginated.totalPages,
       nextTopic,
     });
   } catch (err: any) {
