@@ -25,6 +25,8 @@ import {
 
 const router = Router();
 
+type NormalizedContentType = "inactive_email" | "newsletter" | "both";
+
 function toId(doc: any) {
   if (!doc) return doc;
 
@@ -117,7 +119,7 @@ async function getSafeBrandContext(settings: any) {
 
 function buildDraftMetadata(d: any, brandContext: any, settings?: any) {
   return {
-    ...(d.metadata || {}),
+    ...(d?.metadata || {}),
     usedWebsiteResearch: Boolean(brandContext?.usedWebsiteResearch),
     websiteResearchUrl: brandContext?.websiteResearchUrl || "",
     coveredTopicsCount: Number(brandContext?.coveredTopicsCount || 0),
@@ -128,7 +130,7 @@ function buildDraftMetadata(d: any, brandContext: any, settings?: any) {
   };
 }
 
-function normalizeContentType(value: any) {
+function normalizeContentType(value: any): NormalizedContentType {
   const contentType = String(value || "both");
 
   if (contentType === "email") return "inactive_email";
@@ -183,13 +185,13 @@ async function createAiDraft({
     generationSource,
     aiProvider: provider || "ai",
     aiModel: model || "unknown",
-    promptUsed,
-    targetAudience,
+    promptUsed: promptUsed || "",
+    targetAudience: targetAudience || "",
     angle: cleanDraft.angle || sanitizeTextWithoutDashes(angle || ""),
     discountCode: sanitizeTextWithoutDashes(settings?.discountCode || ""),
     discountText: sanitizeTextWithoutDashes(settings?.discountText || ""),
-    discountUrl: settings?.discountUrl,
-    ctaUrl: settings?.ctaUrl,
+    discountUrl: settings?.discountUrl || "",
+    ctaUrl: settings?.ctaUrl || "",
     metadata: buildDraftMetadata(cleanDraft, brandContext, settings),
   });
 }
@@ -206,19 +208,12 @@ async function listDraftsHandler(req: any, res: any) {
     const query: any = {};
 
     if (status && status !== "all") {
-      if (status === "pending") {
-        query.status = "pending_approval";
-      } else {
-        query.status = status;
-      }
+      query.status = status === "pending" ? "pending_approval" : status;
     }
 
     if (contentType && contentType !== "all") {
-      if (contentType === "email") {
-        query.contentType = "inactive_email";
-      } else {
-        query.contentType = contentType;
-      }
+      query.contentType =
+        contentType === "email" ? "inactive_email" : contentType;
     }
 
     const pageNum = Math.max(1, parseInt(page, 10));
@@ -262,11 +257,8 @@ async function approvedTemplatesHandler(req: any, res: any) {
     if (status && status !== "all") query.status = status;
 
     if (contentType && contentType !== "all") {
-      if (contentType === "email") {
-        query.contentType = "inactive_email";
-      } else {
-        query.contentType = contentType;
-      }
+      query.contentType =
+        contentType === "email" ? "inactive_email" : contentType;
     }
 
     const pageNum = Math.max(1, parseInt(page, 10));
@@ -282,12 +274,14 @@ async function approvedTemplatesHandler(req: any, res: any) {
       ApprovedContentTemplate.countDocuments(query),
     ]);
 
+    const serialized = templates.map((t: any) =>
+      toId(sanitizeDraftForNoDashes(t))
+    );
+
     return res.json({
       success: true,
-      templates: templates.map((t: any) => toId(sanitizeDraftForNoDashes(t))),
-      approvedTemplates: templates.map((t: any) =>
-        toId(sanitizeDraftForNoDashes(t))
-      ),
+      templates: serialized,
+      approvedTemplates: serialized,
       total,
       page: pageNum,
       totalPages: Math.ceil(total / limitNum),
@@ -304,14 +298,12 @@ async function approvedTemplatesHandler(req: any, res: any) {
   }
 }
 
-// Aliases because frontend is calling both styles.
 router.get("/ai/drafts", requireAuth, listDraftsHandler);
 router.get("/drafts", requireAuth, listDraftsHandler);
 
 router.get("/approved-templates", requireAuth, approvedTemplatesHandler);
 router.get("/ai/approved-templates", requireAuth, approvedTemplatesHandler);
 
-// POST /api/ai/generate
 router.post("/ai/generate", requireAuth, async (req: any, res: any) => {
   let genRun: any = null;
 
@@ -334,14 +326,6 @@ router.post("/ai/generate", requireAuth, async (req: any, res: any) => {
       req.body?.customInstructions || ""
     );
     const includeDiscount = req.body?.includeDiscount !== false;
-
-    if (!["inactive_email", "newsletter", "both"].includes(contentType)) {
-      return jsonError(
-        res,
-        400,
-        "Invalid contentType. Use inactive_email, newsletter, or both."
-      );
-    }
 
     const settings = await getSettings();
     const brandContext = await getSafeBrandContext(settings);
@@ -519,7 +503,6 @@ router.post("/ai/generate", requireAuth, async (req: any, res: any) => {
   }
 });
 
-// GET /api/ai/drafts/:id
 router.get("/ai/drafts/:id", requireAuth, async (req: any, res: any) => {
   try {
     const draft = await AiContentDraft.findById(req.params.id).lean();
@@ -536,7 +519,6 @@ router.get("/ai/drafts/:id", requireAuth, async (req: any, res: any) => {
   }
 });
 
-// PUT /api/ai/drafts/:id
 router.put("/ai/drafts/:id", requireAuth, async (req: any, res: any) => {
   try {
     const allowed = [
@@ -555,8 +537,8 @@ router.put("/ai/drafts/:id", requireAuth, async (req: any, res: any) => {
 
     const update: any = {};
 
-    for (const k of allowed) {
-      if (req.body[k] !== undefined) update[k] = req.body[k];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) update[key] = req.body[key];
     }
 
     const cleanUpdate = sanitizeDraftForNoDashes(update);
@@ -591,7 +573,6 @@ router.put("/ai/drafts/:id", requireAuth, async (req: any, res: any) => {
   }
 });
 
-// POST /api/ai/drafts/:id/approve
 router.post("/ai/drafts/:id/approve", requireAuth, async (req: any, res: any) => {
   try {
     const draft = await AiContentDraft.findById(req.params.id);
@@ -607,21 +588,26 @@ router.post("/ai/drafts/:id/approve", requireAuth, async (req: any, res: any) =>
     const settings = await getSettings();
     const cleanDraft = sanitizeDraftForNoDashes(draft.toObject());
 
-    const approved = await ApprovedContentTemplate.create({
+    const approved = (await ApprovedContentTemplate.create({
       contentType: draft.contentType,
       draftId: draft._id.toString(),
-      title: cleanDraft.title,
-      subject: cleanDraft.subject,
-      preheader: cleanDraft.preheader,
-      htmlBody: cleanDraft.htmlBody,
-      textBody: cleanDraft.textBody,
+      sourceDraftId: draft._id.toString(),
+      title: cleanDraft.title || "",
+      subject: cleanDraft.subject || "",
+      preheader: cleanDraft.preheader || "",
+      htmlBody: cleanDraft.htmlBody || "",
+      textBody: cleanDraft.textBody || "",
       status: "active",
       source: "ai_approved",
-      angle: cleanDraft.angle,
+      angle: cleanDraft.angle || "",
+      aiProvider: draft.aiProvider || "",
+      aiModel: draft.aiModel || "",
+      promptUsed: draft.promptUsed || "",
+      targetAudience: draft.targetAudience || "",
       discountCode: sanitizeTextWithoutDashes(draft.discountCode || ""),
       discountText: sanitizeTextWithoutDashes(draft.discountText || ""),
-      discountUrl: draft.discountUrl,
-      ctaUrl: draft.ctaUrl,
+      discountUrl: draft.discountUrl || "",
+      ctaUrl: draft.ctaUrl || "",
       metadata: {
         ...(cleanDraft.metadata || {}),
         brandLogoUrl:
@@ -635,14 +621,14 @@ router.post("/ai/drafts/:id/approve", requireAuth, async (req: any, res: any) =>
         brandApplied: true,
       },
       approvedAt: new Date(),
-    });
+    })) as any;
 
-    draft.title = cleanDraft.title;
-    draft.subject = cleanDraft.subject;
-    draft.preheader = cleanDraft.preheader;
-    draft.htmlBody = cleanDraft.htmlBody;
-    draft.textBody = cleanDraft.textBody;
-    draft.angle = cleanDraft.angle;
+    draft.title = cleanDraft.title || "";
+    draft.subject = cleanDraft.subject || "";
+    draft.preheader = cleanDraft.preheader || "";
+    draft.htmlBody = cleanDraft.htmlBody || "";
+    draft.textBody = cleanDraft.textBody || "";
+    draft.angle = cleanDraft.angle || "";
     draft.status = "approved";
     draft.approvedAt = new Date();
 
@@ -674,7 +660,6 @@ router.post("/ai/drafts/:id/approve", requireAuth, async (req: any, res: any) =>
   }
 });
 
-// POST /api/ai/drafts/:id/reject
 router.post("/ai/drafts/:id/reject", requireAuth, async (req: any, res: any) => {
   try {
     const { reason } = req.body;
@@ -706,7 +691,6 @@ router.post("/ai/drafts/:id/reject", requireAuth, async (req: any, res: any) => 
   }
 });
 
-// POST /api/ai/drafts/:id/archive
 router.post("/ai/drafts/:id/archive", requireAuth, async (req: any, res: any) => {
   try {
     const draft = await AiContentDraft.findByIdAndUpdate(
@@ -730,7 +714,6 @@ router.post("/ai/drafts/:id/archive", requireAuth, async (req: any, res: any) =>
   }
 });
 
-// POST /api/ai/drafts/:id/regenerate-similar
 router.post(
   "/ai/drafts/:id/regenerate-similar",
   requireAuth,
@@ -746,7 +729,9 @@ router.post(
         );
       }
 
-      const original = (await AiContentDraft.findById(req.params.id).lean()) as any;
+      const original = (await AiContentDraft.findById(
+        req.params.id
+      ).lean()) as any;
 
       if (!original) {
         return jsonError(res, 404, "Draft not found");
@@ -758,7 +743,9 @@ router.post(
       const customInstructions = [
         "Generate a fresh variation of this concept. Do not reuse the same subject, emotional frame, metaphor, or structure.",
         `Original title: ${sanitizeTextWithoutDashes(original.title || "")}`,
-        `Original subject: ${sanitizeTextWithoutDashes(original.subject || "")}`,
+        `Original subject: ${sanitizeTextWithoutDashes(
+          original.subject || ""
+        )}`,
         `Original angle: ${sanitizeTextWithoutDashes(original.angle || "")}`,
         brandContext?.systemText || "",
       ].join("\n\n");
@@ -778,17 +765,17 @@ router.post(
       let promptUsed = "";
 
       if (original.contentType === "newsletter") {
-        const r = await generateNewsletterDrafts(opts);
-        resultDrafts = r.drafts || [];
-        usedModel = r.model;
-        usedProvider = r.provider || "ai";
-        promptUsed = r.promptUsed;
+        const result = await generateNewsletterDrafts(opts);
+        resultDrafts = result.drafts || [];
+        usedModel = result.model;
+        usedProvider = result.provider || "ai";
+        promptUsed = result.promptUsed;
       } else {
-        const r = await generateInactiveEmailDrafts(opts);
-        resultDrafts = r.drafts || [];
-        usedModel = r.model;
-        usedProvider = r.provider || "ai";
-        promptUsed = r.promptUsed;
+        const result = await generateInactiveEmailDrafts(opts);
+        resultDrafts = result.drafts || [];
+        usedModel = result.model;
+        usedProvider = result.provider || "ai";
+        promptUsed = result.promptUsed;
       }
 
       const created = [];
@@ -822,7 +809,6 @@ router.post(
   }
 );
 
-// POST /api/ai/drafts/:id/send-test
 router.post("/ai/drafts/:id/send-test", requireAuth, async (req: any, res: any) => {
   try {
     const draft = (await AiContentDraft.findById(req.params.id).lean()) as any;
@@ -881,7 +867,6 @@ router.post("/ai/drafts/:id/send-test", requireAuth, async (req: any, res: any) 
   }
 });
 
-// GET /api/ai/generation-runs
 router.get("/ai/generation-runs", requireAuth, async (req: any, res: any) => {
   try {
     const runs = await AiGenerationRun.find({})

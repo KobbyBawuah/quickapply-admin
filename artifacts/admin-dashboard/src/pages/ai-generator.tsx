@@ -12,74 +12,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Eye, Check, X, Send, RefreshCw } from "lucide-react";
+import {
+  Sparkles,
+  Loader2,
+  Eye,
+  Check,
+  X,
+  Send,
+  RefreshCw,
+} from "lucide-react";
 import { useLocation } from "wouter";
-
-const PRODUCTION_API_URL = "https://workspaceapi-server-production-31fb.up.railway.app";
-
-function getApiBaseUrl() {
-  const configuredBase = String(import.meta.env.VITE_API_URL || "").trim();
-
-  if (configuredBase) {
-    return configuredBase.replace(/\/+$/, "");
-  }
-
-  if (import.meta.env.DEV) {
-    return "http://localhost:5000";
-  }
-
-  return PRODUCTION_API_URL;
-}
-
-async function apiCall(path: string, options?: RequestInit) {
-  const token = localStorage.getItem("qap_admin_token");
-  const base = getApiBaseUrl();
-  const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const url = `${base}/api${cleanPath}`;
-
-  let response: Response;
-
-  try {
-    response = await fetch(url, {
-      ...options,
-      mode: "cors",
-      credentials: "omit",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options?.headers || {}),
-      },
-    });
-  } catch (err: any) {
-    throw new Error(
-      `Failed to connect to API server. Check backend URL and CORS. API: ${base}. ${err?.message || ""}`
-    );
-  }
-
-  const rawText = await response.text();
-
-  let data: any = {};
-
-  try {
-    data = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    data = {
-      error: rawText || `Request failed with status ${response.status}`,
-    };
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      data?.error ||
-        data?.message ||
-        data?.details ||
-        `Request failed with status ${response.status}`
-    );
-  }
-
-  return data;
-}
+import { apiCall } from "../lib/api";
 
 function cleanEmailPreviewHtml(html: string) {
   if (!html) return "";
@@ -160,7 +103,10 @@ function buildEmailPreviewSrcDoc(html: string) {
       return cleanedHtml.replace(/<head([^>]*)>/i, `<head$1>${previewCss}`);
     }
 
-    return cleanedHtml.replace(/<html([^>]*)>/i, `<html$1><head>${previewCss}</head>`);
+    return cleanedHtml.replace(
+      /<html([^>]*)>/i,
+      `<html$1><head>${previewCss}</head>`
+    );
   }
 
   return `<!doctype html>
@@ -189,8 +135,14 @@ const AUDIENCES = [
 
 const ANGLES = [
   { value: "sunday_anxiety", label: "Sunday night application anxiety" },
-  { value: "bored_professional", label: "Working professional bored in current role" },
-  { value: "hearing_nothing", label: "Applying to many jobs and hearing nothing" },
+  {
+    value: "bored_professional",
+    label: "Working professional bored in current role",
+  },
+  {
+    value: "hearing_nothing",
+    label: "Applying to many jobs and hearing nothing",
+  },
   { value: "resume_60s", label: "Resume tailoring in under 60 seconds" },
   { value: "chrome_extension", label: "Chrome extension autofill" },
   { value: "interview_prep", label: "Interview prep" },
@@ -219,28 +171,41 @@ interface Draft {
   status: string;
 }
 
-function PreviewModal({ draft, onClose }: { draft: Draft; onClose: () => void }) {
+function PreviewModal({
+  draft,
+  onClose,
+}: {
+  draft: Draft;
+  onClose: () => void;
+}) {
   const [tab, setTab] = useState<"html" | "text">("html");
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3 sm:p-4">
       <div className="bg-background border border-border rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-          <div>
-            <h3 className="font-semibold text-sm">{draft.title}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Subject: {draft.subject}</p>
+        <div className="flex items-start justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-border">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm truncate">{draft.title}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 break-words">
+              Subject: {draft.subject}
+            </p>
           </div>
 
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground flex-shrink-0"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="flex gap-2 px-5 pt-3">
+        <div className="flex gap-2 px-4 sm:px-5 pt-3">
           <button
             onClick={() => setTab("html")}
             className={`text-xs px-3 py-1 rounded-md font-medium ${
-              tab === "html" ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+              tab === "html"
+                ? "bg-primary text-white"
+                : "bg-muted text-muted-foreground hover:text-foreground"
             }`}
           >
             HTML Preview
@@ -249,23 +214,25 @@ function PreviewModal({ draft, onClose }: { draft: Draft; onClose: () => void })
           <button
             onClick={() => setTab("text")}
             className={`text-xs px-3 py-1 rounded-md font-medium ${
-              tab === "text" ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:text-foreground"
+              tab === "text"
+                ? "bg-primary text-white"
+                : "bg-muted text-muted-foreground hover:text-foreground"
             }`}
           >
             Plain Text
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto p-3 sm:p-4">
           {tab === "html" ? (
             <iframe
               srcDoc={buildEmailPreviewSrcDoc(draft.htmlBody || "")}
               sandbox="allow-same-origin"
-              className="w-full h-[500px] border border-border rounded-lg bg-white"
+              className="w-full h-[420px] sm:h-[500px] border border-border rounded-lg bg-white"
               title="Email preview"
             />
           ) : (
-            <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono bg-muted p-4 rounded-lg">
+            <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono bg-muted p-4 rounded-lg overflow-auto">
               {draft.textBody || "(no plain text version)"}
             </pre>
           )}
@@ -301,33 +268,49 @@ function DraftCard({
 
   return (
     <div className="bg-card border border-border rounded-lg p-4 space-y-3">
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${typeColor}`}>
+            <span
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${typeColor}`}
+            >
               {typeLabel}
             </span>
 
             {draft.angle && (
-              <span className="text-[10px] text-muted-foreground truncate">{draft.angle}</span>
+              <span className="text-[10px] text-muted-foreground truncate">
+                {draft.angle}
+              </span>
             )}
           </div>
 
-          <h3 className="text-sm font-semibold text-foreground truncate">{draft.title}</h3>
-          <p className="text-xs text-muted-foreground mt-0.5 truncate">Subject: {draft.subject}</p>
+          <h3 className="text-sm font-semibold text-foreground truncate">
+            {draft.title}
+          </h3>
+
+          <p className="text-xs text-muted-foreground mt-0.5 break-words">
+            Subject: {draft.subject}
+          </p>
 
           {draft.preheader && (
-            <p className="text-xs text-muted-foreground/70 truncate">Preview: {draft.preheader}</p>
+            <p className="text-xs text-muted-foreground/70 break-words">
+              Preview: {draft.preheader}
+            </p>
           )}
         </div>
 
-        <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex-shrink-0">
+        <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex-shrink-0 w-fit">
           Pending
         </span>
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
-        <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onPreview(draft)}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs gap-1"
+          onClick={() => onPreview(draft)}
+        >
           <Eye className="w-3 h-3" /> Preview
         </Button>
 
@@ -338,7 +321,11 @@ function DraftCard({
           onClick={() => onTest(draft._id)}
           disabled={testing}
         >
-          {testing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+          {testing ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Send className="w-3 h-3" />
+          )}
           Test
         </Button>
 
@@ -348,7 +335,11 @@ function DraftCard({
           onClick={() => onApprove(draft._id)}
           disabled={approving}
         >
-          {approving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+          {approving ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Check className="w-3 h-3" />
+          )}
           Approve
         </Button>
 
@@ -375,14 +366,21 @@ export default function AiGeneratorPage() {
   const [customInstructions, setCustomInstructions] = useState("");
   const [includeDiscount, setIncludeDiscount] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ emailDrafts: number; newsletterDrafts: number; aiModel: string } | null>(null);
+  const [result, setResult] = useState<{
+    emailDrafts: number;
+    newsletterDrafts: number;
+    aiModel: string;
+  } | null>(null);
   const [recentDrafts, setRecentDrafts] = useState<Draft[]>([]);
   const [previewDraft, setPreviewDraft] = useState<Draft | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
 
   async function loadPendingDrafts() {
-    const draftsData = await apiCall("/ai/drafts?status=pending_approval&limit=20");
+    const draftsData = await apiCall<{ drafts: Draft[] }>(
+      "/ai/drafts?status=pending_approval&limit=20"
+    );
+
     setRecentDrafts(draftsData.drafts || []);
   }
 
@@ -392,12 +390,19 @@ export default function AiGeneratorPage() {
     setRecentDrafts([]);
 
     try {
-      const data = await apiCall("/ai/generate", {
+      const data = await apiCall<{
+        emailDrafts: number;
+        newsletterDrafts: number;
+        aiModel?: string;
+        aiProvider?: string;
+        message?: string;
+      }>("/ai/generate", {
         method: "POST",
         body: JSON.stringify({
           contentType,
           count: parseInt(count, 10),
-          audience: AUDIENCES.find((a) => a.value === audience)?.label || audience,
+          audience:
+            AUDIENCES.find((a) => a.value === audience)?.label || audience,
           angle: ANGLES.find((a) => a.value === angle)?.label || angle,
           customInstructions,
           includeDiscount,
@@ -452,8 +457,14 @@ export default function AiGeneratorPage() {
     setTesting(id);
 
     try {
-      const data = await apiCall(`/ai/drafts/${id}/send-test`, { method: "POST" });
-      toast[data.success ? "success" : "error"](data.message || "Test request completed");
+      const data = await apiCall<{ success: boolean; message?: string }>(
+        `/ai/drafts/${id}/send-test`,
+        { method: "POST" }
+      );
+
+      toast[data.success ? "success" : "error"](
+        data.message || "Test request completed"
+      );
     } catch (err: any) {
       toast.error(err.message || "Test send failed");
     } finally {
@@ -463,29 +474,37 @@ export default function AiGeneratorPage() {
 
   return (
     <Layout>
-      <div className="p-6 space-y-6 max-w-5xl">
-        <div className="flex items-start justify-between">
-          <div>
+      <div className="p-4 sm:p-6 space-y-6 max-w-6xl mx-auto">
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-violet-500" />
               AI Generator
             </h1>
 
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Generate email and newsletter drafts using your selected AI provider. Newsletter drafts can include fal.ai-generated graphics. All drafts go to the Approval Queue before use.
+            <p className="text-sm text-muted-foreground mt-0.5 max-w-3xl">
+              Generate email and newsletter drafts using your selected AI
+              provider. All drafts go to the Approval Queue before use.
             </p>
           </div>
 
-          <Button variant="outline" size="sm" onClick={() => navigate("/ai/queue")} className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/ai/queue")}
+            className="gap-1.5 w-full sm:w-fit"
+          >
             <RefreshCw className="w-3.5 h-3.5" />
             View Approval Queue
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-foreground">Generation Options</h2>
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          <div className="xl:col-span-2 space-y-4">
+            <div className="bg-card border border-border rounded-xl p-4 sm:p-5 space-y-4">
+              <h2 className="text-sm font-semibold text-foreground">
+                Generation Options
+              </h2>
 
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Content Type</Label>
@@ -536,7 +555,9 @@ export default function AiGeneratorPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Email Angle / Concept</Label>
+                <Label className="text-xs font-medium">
+                  Email Angle / Concept
+                </Label>
                 <Select value={angle} onValueChange={setAngle}>
                   <SelectTrigger className="h-9">
                     <SelectValue />
@@ -552,7 +573,9 @@ export default function AiGeneratorPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Custom Instructions (optional)</Label>
+                <Label className="text-xs font-medium">
+                  Custom Instructions (optional)
+                </Label>
                 <Textarea
                   value={customInstructions}
                   onChange={(e) => setCustomInstructions(e.target.value)}
@@ -561,16 +584,27 @@ export default function AiGeneratorPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between py-1">
+              <div className="flex items-center justify-between gap-4 py-1">
                 <div>
-                  <p className="text-xs font-medium text-foreground">Include Discount Code</p>
-                  <p className="text-xs text-muted-foreground">From Settings discount fields</p>
+                  <p className="text-xs font-medium text-foreground">
+                    Include Discount Code
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    From Settings discount fields
+                  </p>
                 </div>
 
-                <Switch checked={includeDiscount} onCheckedChange={setIncludeDiscount} />
+                <Switch
+                  checked={includeDiscount}
+                  onCheckedChange={setIncludeDiscount}
+                />
               </div>
 
-              <Button className="w-full gap-2" onClick={handleGenerate} disabled={loading}>
+              <Button
+                className="w-full gap-2"
+                onClick={handleGenerate}
+                disabled={loading}
+              >
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" /> Generating...
@@ -585,19 +619,24 @@ export default function AiGeneratorPage() {
 
             {result && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-1">
-                <p className="text-sm font-semibold text-emerald-800">Generation complete</p>
-                <p className="text-xs text-emerald-700">
-                  {result.emailDrafts} email draft(s) + {result.newsletterDrafts} newsletter draft(s) created
+                <p className="text-sm font-semibold text-emerald-800">
+                  Generation complete
                 </p>
-                <p className="text-xs text-emerald-600/70">Model: {result.aiModel}</p>
+                <p className="text-xs text-emerald-700">
+                  {result.emailDrafts} email draft(s) +{" "}
+                  {result.newsletterDrafts} newsletter draft(s) created
+                </p>
+                <p className="text-xs text-emerald-600/70">
+                  Model: {result.aiModel}
+                </p>
                 <p className="text-xs text-emerald-700 mt-1">
-                  All drafts are <strong>pending approval</strong>. Review them below or in the Approval Queue.
+                  All drafts are <strong>pending approval</strong>.
                 </p>
               </div>
             )}
           </div>
 
-          <div className="lg:col-span-3 space-y-3">
+          <div className="xl:col-span-3 space-y-3 min-w-0">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-foreground">
                 {loading
@@ -611,7 +650,10 @@ export default function AiGeneratorPage() {
             {loading && (
               <div className="space-y-3">
                 {[1, 2].map((i) => (
-                  <div key={i} className="bg-card border border-border rounded-lg p-4 space-y-2 animate-pulse">
+                  <div
+                    key={i}
+                    className="bg-card border border-border rounded-lg p-4 space-y-2 animate-pulse"
+                  >
                     <div className="h-3 bg-muted rounded w-1/3" />
                     <div className="h-4 bg-muted rounded w-3/4" />
                     <div className="h-3 bg-muted rounded w-1/2" />
@@ -621,11 +663,13 @@ export default function AiGeneratorPage() {
             )}
 
             {!loading && recentDrafts.length === 0 && result === null && (
-              <div className="border-2 border-dashed border-border rounded-xl p-12 text-center">
+              <div className="border-2 border-dashed border-border rounded-xl p-6 sm:p-12 text-center">
                 <Sparkles className="w-8 h-8 text-muted-foreground/40 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">Select options and click Generate Now</p>
+                <p className="text-sm text-muted-foreground">
+                  Select options and click Generate Now
+                </p>
                 <p className="text-xs text-muted-foreground/70 mt-1">
-                  The selected text AI provider will generate drafts based on your settings. Newsletter graphics use fal.ai when enabled. Generation can take 15 to 60 seconds.
+                  Generation can take 15 to 60 seconds.
                 </p>
               </div>
             )}
@@ -633,8 +677,14 @@ export default function AiGeneratorPage() {
             {!loading && recentDrafts.length === 0 && result !== null && (
               <div className="border-2 border-dashed border-border rounded-xl p-8 text-center">
                 <Check className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">All drafts approved or rejected</p>
-                <Button size="sm" className="mt-3" onClick={() => navigate("/ai/queue")}>
+                <p className="text-sm text-muted-foreground">
+                  All drafts approved or rejected
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => navigate("/ai/queue")}
+                >
                   Go to Approval Queue
                 </Button>
               </div>
@@ -656,7 +706,12 @@ export default function AiGeneratorPage() {
         </div>
       </div>
 
-      {previewDraft && <PreviewModal draft={previewDraft} onClose={() => setPreviewDraft(null)} />}
+      {previewDraft && (
+        <PreviewModal
+          draft={previewDraft}
+          onClose={() => setPreviewDraft(null)}
+        />
+      )}
     </Layout>
   );
 }

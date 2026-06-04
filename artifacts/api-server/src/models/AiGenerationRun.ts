@@ -47,59 +47,71 @@ const AiGenerationRunSchema = new Schema<IAiGenerationRun>(
       type: String,
       enum: ["manual", "scheduled"],
       required: true,
+      index: true,
     },
 
     contentType: {
       type: String,
       enum: ["inactive_email", "newsletter", "both", "post_concepts"],
       required: true,
+      index: true,
     },
 
     startedAt: {
       type: Date,
       default: Date.now,
+      index: true,
     },
 
     finishedAt: {
       type: Date,
+      default: null,
     },
 
     status: {
       type: String,
       enum: ["running", "completed", "failed"],
       default: "running",
+      index: true,
     },
 
     generatedEmailDrafts: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     generatedNewsletterDrafts: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     generatedPostConcepts: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     failedCount: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     errorMessage: {
       type: String,
+      default: "",
     },
 
     aiModel: {
       type: String,
+      default: "",
     },
 
     aiProvider: {
       type: String,
+      default: "",
     },
 
     usedWebsiteResearch: {
@@ -109,19 +121,23 @@ const AiGenerationRunSchema = new Schema<IAiGenerationRun>(
 
     websiteResearchUrl: {
       type: String,
+      default: "",
     },
 
     websiteResearchSummary: {
       type: String,
+      default: "",
     },
 
     coveredTopicsCount: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
     notes: {
       type: String,
+      default: "",
     },
   },
   {

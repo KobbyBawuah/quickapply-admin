@@ -11,6 +11,16 @@ import {
 } from "./emailService.js";
 import mongoose from "mongoose";
 
+type CampaignResult = {
+  runId: string;
+  sentCount: number;
+  failedCount: number;
+  skippedCount: number;
+  matchedUsers: number;
+  status: string;
+  message: string;
+};
+
 function inactiveUserQuery(cutoff: Date) {
   return {
     email: { $exists: true, $ne: "" },
@@ -46,10 +56,7 @@ function inactiveUserQuery(cutoff: Date) {
                 ],
               },
               {
-                $or: [
-                  { loginAt: { $exists: false } },
-                  { loginAt: null },
-                ],
+                $or: [{ loginAt: { $exists: false } }, { loginAt: null }],
               },
               {
                 $or: [
@@ -63,6 +70,25 @@ function inactiveUserQuery(cutoff: Date) {
       },
     ],
   };
+}
+
+function getUserName(user: any): string {
+  return (
+    user?.name ||
+    `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
+    user?.email ||
+    "there"
+  );
+}
+
+function buildSafeTemplateVars(user: any, settings: any, extra?: Record<string, any>) {
+  const baseVars = buildTemplateVars(user, settings) as Record<string, any>;
+
+  return {
+    ...baseVars,
+    ...(extra || {}),
+    name: baseVars.name || getUserName(user),
+  } as Record<string, any> & { name: string };
 }
 
 export async function getInactiveUsers(): Promise<any[]> {
@@ -141,6 +167,7 @@ async function incrementRun(
     sentCount?: number;
     failedCount?: number;
     matchedUsers?: number;
+    skippedCount?: number;
   }
 ) {
   try {
@@ -153,15 +180,7 @@ async function incrementRun(
 export async function runInactiveCampaign(
   triggerType: "manual" | "scheduled" = "manual",
   existingRunId?: string
-): Promise<{
-  runId: string;
-  sentCount: number;
-  failedCount: number;
-  skippedCount: number;
-  matchedUsers: number;
-  status: string;
-  message: string;
-}> {
+): Promise<CampaignResult> {
   let run: any;
 
   if (existingRunId) {
@@ -219,12 +238,15 @@ export async function runInactiveCampaign(
   const usersToProcess = users.slice(0, maxEmails);
   skippedCount += users.length - usersToProcess.length;
 
-  await incrementRun(run._id, { matchedUsers: users.length });
+  await incrementRun(run._id, {
+    matchedUsers: users.length,
+    skippedCount,
+  });
 
   for (let i = 0; i < usersToProcess.length; i++) {
     const user = usersToProcess[i];
     const template = templates[i % templates.length];
-    const vars = buildTemplateVars(user, settings);
+    const vars = buildSafeTemplateVars(user, settings);
 
     const rendered = renderEmailContent(
       template.subject,
@@ -250,6 +272,7 @@ export async function runInactiveCampaign(
       templateId: template._id.toString(),
       subject: rendered.subject,
       htmlBody: rendered.html,
+      textBody: rendered.text,
       status: result.success ? "sent" : "failed",
       provider: "gmail",
       providerMessageId: result.messageId,
@@ -271,7 +294,7 @@ export async function runInactiveCampaign(
       failedCount++;
     }
 
-    await incrementRun(run._id, { sentCount, failedCount });
+    await incrementRun(run._id, { sentCount, failedCount, skippedCount });
 
     if (delay > 0 && i < usersToProcess.length - 1) {
       await sleep(delay);
@@ -322,15 +345,7 @@ export async function runNewsletterCampaign(
   customTopic?: string,
   overrideTemplateId?: string,
   existingRunId?: string
-): Promise<{
-  runId: string;
-  sentCount: number;
-  failedCount: number;
-  skippedCount: number;
-  matchedUsers: number;
-  status: string;
-  message: string;
-}> {
+): Promise<CampaignResult> {
   let run: any;
 
   if (existingRunId) {
@@ -354,7 +369,7 @@ export async function runNewsletterCampaign(
   const delay = Number(settings.delayBetweenEmailsMs ?? 1000);
   const topic = customTopic || getNextNewsletterTopic();
 
-  let templates;
+  let templates: any[];
 
   if (overrideTemplateId && overrideTemplateId !== "auto") {
     const specific = await ApprovedContentTemplate.findOne({
@@ -364,12 +379,14 @@ export async function runNewsletterCampaign(
     });
 
     if (!specific) {
-      const msg = "Selected template is not an active approved newsletter template.";
+      const msg =
+        "Selected template is not an active approved newsletter template.";
 
       run.status = "failed";
       run.notes = msg;
       run.finishedAt = new Date();
       run.matchedUsers = users.length;
+      run.skippedCount = users.length;
 
       await run.save();
 
@@ -422,12 +439,15 @@ export async function runNewsletterCampaign(
   const usersToProcess = users.slice(0, maxEmails);
   skippedCount += users.length - usersToProcess.length;
 
-  await incrementRun(run._id, { matchedUsers: users.length });
+  await incrementRun(run._id, {
+    matchedUsers: users.length,
+    skippedCount,
+  });
 
   for (let i = 0; i < usersToProcess.length; i++) {
     const user = usersToProcess[i];
     const template = templates[0];
-    const vars = { ...buildTemplateVars(user, settings), topic };
+    const vars = buildSafeTemplateVars(user, settings, { topic });
 
     const rendered = renderEmailContent(
       template.subject,
@@ -453,6 +473,7 @@ export async function runNewsletterCampaign(
       templateId: template._id.toString(),
       subject: rendered.subject,
       htmlBody: rendered.html,
+      textBody: rendered.text,
       status: result.success ? "sent" : "failed",
       provider: "gmail",
       providerMessageId: result.messageId,
@@ -474,7 +495,7 @@ export async function runNewsletterCampaign(
       failedCount++;
     }
 
-    await incrementRun(run._id, { sentCount, failedCount });
+    await incrementRun(run._id, { sentCount, failedCount, skippedCount });
 
     if (delay > 0 && i < usersToProcess.length - 1) {
       await sleep(delay);

@@ -97,6 +97,7 @@ const AppSettingsSchema = new Schema<IAppSettings>(
         plan: "plan",
         country: "country",
         createdAt: "createdAt",
+        updatedAt: "updatedAt",
         doNotContact: "doNotContact",
         role: "role",
       },
@@ -179,7 +180,7 @@ export const AppSettings =
   );
 
 function applyRuntimeEnvOverrides(settings: IAppSettings): IAppSettings {
-  const overrides: Partial<IAppSettings> = {
+  Object.assign(settings, {
     mongoUri: envString("MONGO_URI") || settings.mongoUri,
     databaseName:
       envString("MONGO_DB_NAME") ||
@@ -288,9 +289,7 @@ function applyRuntimeEnvOverrides(settings: IAppSettings): IAppSettings {
       settings.newsletterHeaderImageUrl,
     newsletterFooterText:
       envString("NEWSLETTER_FOOTER_TEXT") || settings.newsletterFooterText,
-  };
-
-  Object.assign(settings, overrides);
+  });
 
   return settings;
 }
@@ -344,13 +343,18 @@ export async function getSettings(): Promise<IAppSettings> {
 
       discountCode: envString("DISCOUNT_CODE") || "QAP20",
       discountText: envString("DISCOUNT_TEXT") || "20% off your next upgrade",
-      discountUrl: envString("DISCOUNT_URL") || "https://quickapplypro.com/pricing",
+      discountUrl:
+        envString("DISCOUNT_URL") || "https://quickapplypro.com/pricing",
       discountExpiryDate: envString("DISCOUNT_EXPIRY_DATE") || "",
 
-      companyWebsiteUrl: envString("COMPANY_WEBSITE_URL") || "https://quickapplypro.com",
-      brandLogoUrl: envString("BRAND_LOGO_URL") || "https://quickapplypro.com/logo.png",
-      newsletterPrimaryColor: envString("NEWSLETTER_PRIMARY_COLOR") || "#0B88D5",
-      newsletterAccentColor: envString("NEWSLETTER_ACCENT_COLOR") || "#48A5DF",
+      companyWebsiteUrl:
+        envString("COMPANY_WEBSITE_URL") || "https://quickapplypro.com",
+      brandLogoUrl:
+        envString("BRAND_LOGO_URL") || "https://quickapplypro.com/logo.png",
+      newsletterPrimaryColor:
+        envString("NEWSLETTER_PRIMARY_COLOR") || "#0B88D5",
+      newsletterAccentColor:
+        envString("NEWSLETTER_ACCENT_COLOR") || "#48A5DF",
       newsletterHeaderImageUrl:
         envString("NEWSLETTER_HEADER_IMAGE_URL") ||
         envString("BRAND_LOGO_URL") ||

@@ -41,10 +41,7 @@ function inactiveQuery(cutoff: Date) {
             ],
           },
           {
-            $or: [
-              { loginAt: { $exists: false } },
-              { loginAt: null },
-            ],
+            $or: [{ loginAt: { $exists: false } }, { loginAt: null }],
           },
           {
             $or: [

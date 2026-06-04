@@ -5,13 +5,12 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src"],
-  "references": [
-    {
-      "path": "../../lib/db"
-    },
-    {
-      "path": "../../lib/api-zod"
-    }
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    ".replit-artifact"
   ]
 }

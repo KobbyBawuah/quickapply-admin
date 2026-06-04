@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Layout } from "@/components/Layout";
 import { formatDateTime } from "@/lib/utils";
+import { apiCall } from "../lib/api";
 import {
   Users,
   UserCheck,
@@ -13,60 +14,6 @@ import {
   Ban,
   TrendingUp,
 } from "lucide-react";
-
-const PRODUCTION_API_URL =
-  "https://workspaceapi-server-production-31fb.up.railway.app";
-
-function getApiBaseUrl() {
-  const configuredBase = String(import.meta.env.VITE_API_URL || "").trim();
-
-  if (configuredBase) {
-    return configuredBase.replace(/\/+$/, "");
-  }
-
-  if (import.meta.env.DEV) {
-    return "http://localhost:5000";
-  }
-
-  return PRODUCTION_API_URL;
-}
-
-async function apiCall<T>(path: string): Promise<T> {
-  const token = localStorage.getItem("qap_admin_token");
-  const base = getApiBaseUrl();
-  const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const url = `${base}/api${cleanPath}`;
-
-  const response = await fetch(url, {
-    method: "GET",
-    mode: "cors",
-    credentials: "omit",
-    headers: {
-      Accept: "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-
-  const text = await response.text();
-
-  let data: any = {};
-
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { error: text };
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      data?.error ||
-        data?.message ||
-        `Request failed with status ${response.status}`
-    );
-  }
-
-  return data as T;
-}
 
 type DashboardStats = {
   totalUsers: number;
@@ -105,7 +52,7 @@ function StatCard({
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg p-4 flex items-start gap-4">
+    <div className="bg-card border border-border rounded-lg p-4 flex items-start gap-4 min-w-0">
       <div
         className={`w-10 h-10 rounded-lg border flex items-center justify-center flex-shrink-0 ${colors[color]}`}
       >
@@ -141,8 +88,8 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <Layout>
-        <div className="p-6">
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="p-4 sm:p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => (
               <div
                 key={i}
@@ -161,7 +108,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <Layout>
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
             Failed to load dashboard:{" "}
             {error instanceof Error ? error.message : "Unknown error"}
@@ -175,7 +122,7 @@ export default function DashboardPage() {
 
   return (
     <Layout>
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
         <div>
           <h1 className="text-xl font-bold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -183,12 +130,12 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div>
+        <section>
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
             Users
           </h2>
 
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <StatCard
               label="Total Users"
               value={s?.totalUsers ?? 0}
@@ -219,14 +166,14 @@ export default function DashboardPage() {
               color="gray"
             />
           </div>
-        </div>
+        </section>
 
-        <div>
+        <section>
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
             Email Activity
           </h2>
 
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <StatCard
               label="Sent This Week"
               value={s?.emailsSentThisWeek ?? 0}
@@ -256,20 +203,20 @@ export default function DashboardPage() {
               color="green"
             />
           </div>
-        </div>
+        </section>
 
-        <div>
+        <section>
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
             Schedule
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-4">
               <div className="w-10 h-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0">
                 <Calendar className="w-5 h-5 text-amber-600" />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                   Last Monday Campaign
                 </p>
@@ -285,12 +232,12 @@ export default function DashboardPage() {
                 <Clock className="w-5 h-5 text-blue-600" />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                   Next Scheduled
                 </p>
 
-                <p className="text-sm font-semibold text-foreground mt-0.5">
+                <p className="text-sm font-semibold text-foreground mt-0.5 break-words">
                   {s?.nextScheduledCampaign
                     ? formatDateTime(s.nextScheduledCampaign)
                     : "See campaign settings"}
@@ -302,7 +249,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </Layout>
   );

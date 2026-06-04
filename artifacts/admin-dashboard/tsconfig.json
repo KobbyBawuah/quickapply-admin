@@ -1,22 +1,23 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
-    "noEmit": true,
-    "jsx": "preserve",
-    "lib": ["esnext", "dom", "dom.iterable"],
-    "resolveJsonModule": true,
-    "allowImportingTsExtensions": true,
-    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "rootDir": ".",
     "types": ["node", "vite/client"],
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
-    }
+      "@/*": ["src/*"],
+      "@assets/*": ["../../attached_assets/*"]
+    },
+    "noEmit": true
   },
-  "references": [
-    {
-      "path": "../../lib/api-client-react"
-    }
+  "include": [
+    "src",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    ".replit-artifact"
   ]
 }

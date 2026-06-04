@@ -112,10 +112,7 @@ function activityOlderThan(days: number) {
             ],
           },
           {
-            $or: [
-              { loginAt: { $exists: false } },
-              { loginAt: null },
-            ],
+            $or: [{ loginAt: { $exists: false } }, { loginAt: null }],
           },
           {
             $or: [
@@ -232,10 +229,6 @@ export function buildUserQuery(
 
   if (filter === "doNotContact") {
     and.push({ doNotContact: true });
-  }
-
-  if (!filter || filter === "all") {
-    // no filter
   }
 
   if (and.length === 0) return {};

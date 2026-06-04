@@ -4,7 +4,6 @@ import express, {
   type Response,
   type NextFunction,
 } from "express";
-import cors, { type CorsOptions } from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
@@ -45,31 +44,47 @@ function isAllowedOrigin(origin?: string): boolean {
   return /^https:\/\/[a-z0-9-]+\.up\.railway\.app$/i.test(cleanOrigin);
 }
 
-const corsOptions: CorsOptions = {
-  origin(origin, callback) {
-    if (isAllowedOrigin(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(new Error(`CORS blocked origin: ${origin}`));
-  },
-  credentials: false,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Origin",
-    "X-Requested-With",
-    "Content-Type",
-    "Accept",
-    "Authorization",
-  ],
-  optionsSuccessStatus: 204,
-};
-
 app.set("trust proxy", 1);
 
-app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin;
+
+  if (typeof origin === "string" && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+
+  if (!origin) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  }
+
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    req.headers["access-control-request-headers"] ||
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+  );
+
+  res.setHeader("Access-Control-Max-Age", "86400");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+
+  if (typeof origin === "string" && !isAllowedOrigin(origin)) {
+    res.status(403).json({
+      error: `CORS blocked origin: ${origin}`,
+    });
+    return;
+  }
+
+  next();
+});
 
 app.use(
   pinoHttp({
