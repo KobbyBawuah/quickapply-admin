@@ -8,15 +8,9 @@ import { connectMongoDB } from "./lib/mongodb.js";
 import { seedTemplatesIfEmpty } from "./lib/seedTemplates.js";
 import { startCronJobs } from "./lib/cronJobs.js";
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
+const rawPort = process.env.PORT || "5000";
 const port = Number(rawPort);
+const host = process.env.HOST || "0.0.0.0";
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
@@ -33,13 +27,8 @@ async function main() {
     logger.error({ err }, "Startup initialization error (non-fatal)");
   }
 
-  app.listen(port, (err?: Error) => {
-    if (err) {
-      logger.error({ err }, "Error listening on port");
-      process.exit(1);
-    }
-
-    logger.info({ port }, "Server listening");
+  app.listen(port, host, () => {
+    logger.info({ host, port }, "Server listening");
   });
 }
 
